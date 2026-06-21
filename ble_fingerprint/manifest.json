@@ -1,9 +1,0 @@
-{
-  "domain": "ble_fingerprint",
-  "name": "BLE Fingerprint Positioning",
-  "codeowners": ["@scoprire87"],
-  "dependencies": ["bluetooth"],
-  "integration_type": "hub",
-  "iot_class": "local_push",
-  "version": "1.0.0"
-}
