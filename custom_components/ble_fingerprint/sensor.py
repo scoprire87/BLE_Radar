@@ -13,15 +13,28 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     """Configura il sensore BLE Fingerprint tramite l'interfaccia UI (Config Flow)."""
     
-    # Sostituisci questi con gli entity_id reali che Bermuda genera per le distanze del tuo telefono
+    # La tua lista reale dei 15 proxy
     proxy_sensors = [
-        "sensor.distanza_shelly_salotto_alessandro",
-        "sensor.distanza_shelly_corridoio_alessandro",
-        "sensor.distanza_shelly_studio_alessandro"
+        "sensor.samsung_ale_distance_to_bagno",
+        "sensor.samsung_ale_distance_to_bagno_taverna",
+        "sensor.samsung_ale_distance_to_camerina",
+        "sensor.samsung_ale_distance_to_consumo_pozzo_nero",
+        "sensor.samsung_ale_distance_to_corridoio",
+        "sensor.samsung_ale_distance_to_corridoio_1",
+        "sensor.samsung_ale_distance_to_cucina",
+        "sensor.samsung_ale_distance_to_gateway_bluetooth",
+        "sensor.samsung_ale_distance_to_interruttore_corridoio",
+        "sensor.samsung_ale_distance_to_laterali_taverna",
+        "sensor.samsung_ale_distance_to_raspberry_ha",
+        "sensor.samsung_ale_distance_to_salotto",
+        "sensor.samsung_ale_distance_to_studio",
+        "sensor.samsung_ale_distance_to_tenda",
+        "sensor.samsung_ale_distance_to_veranda"
     ]
     
     sensor = BLEFingerprintSensor(hass, "Posizione Alessandro Fingerprint", proxy_sensors)
     async_add_entities([sensor])
+
 
 class BLEFingerprintSensor(SensorEntity):
     """Sensore che calcola la stanza basandosi sul fingerprinting vettoriale e la distanza euclidea."""
@@ -32,9 +45,22 @@ class BLEFingerprintSensor(SensorEntity):
         self._proxy_sensors = proxy_sensors
         self._attr_native_value = "Sconosciuta"
         self._current_distances = {}
+        
+        # Inizializza tutte le distanze a "fuori portata" (20 metri) per evitare blocchi
+        for proxy in proxy_sensors:
+            self._current_distances[proxy] = 20.0
 
     async def async_added_to_hass(self):
-        """Quando il sensore viene avviato, inizia ad ascoltare in background i cambiamenti degli Shelly."""
+        """Quando il sensore viene avviato, popola i dati e ascolta i cambiamenti."""
+        # Legge lo stato attuale di tutti i sensori all'avvio
+        for proxy in self._proxy_sensors:
+            state_obj = self.hass.states.get(proxy)
+            if state_obj and state_obj.state not in ['unknown', 'unavailable']:
+                try:
+                    self._current_distances[proxy] = float(state_obj.state)
+                except ValueError:
+                    pass
+
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, self._proxy_sensors, self._async_distance_changed
@@ -47,21 +73,23 @@ class BLEFingerprintSensor(SensorEntity):
         new_state = event.data.get("new_state")
 
         if new_state is None or new_state.state in ['unknown', 'unavailable']:
-            return
+            # Se un sensore va offline (troppo lontano), lo impostiamo a 20 metri
+            self._current_distances[entity_id] = 20.0
+        else:
+            try:
+                # Aggiorna il valore nel nostro vettore delle distanze correnti
+                self._current_distances[entity_id] = float(new_state.state)
+            except ValueError:
+                self._current_distances[entity_id] = 20.0
 
-        try:
-            # Aggiorna il valore nel nostro vettore delle distanze correnti
-            self._current_distances[entity_id] = float(new_state.state)
-            self._calculate_room()
-        except ValueError:
-            pass
+        self._calculate_room()
 
     def _calculate_room(self):
         """Il motore matematico: confronta il vettore attuale con i vertici salvati nel file .storage."""
         map_data = self.hass.data.get(DOMAIN, {}).get("map_data", {}).get("rooms", {})
         
-        if not map_data or len(self._current_distances) < len(self._proxy_sensors):
-            # Non abbiamo ancora mappato le stanze o mancano i dati di alcuni Shelly
+        # Se non ci sono stanze mappate, ci fermiamo
+        if not map_data:
             return
 
         best_room = "Sconosciuta"
@@ -74,8 +102,8 @@ class BLEFingerprintSensor(SensorEntity):
                 # Calcola la Distanza Euclidea nello spazio N-dimensionale
                 euclidean_dist = 0.0
                 for proxy in self._proxy_sensors:
-                    d_current = self._current_distances.get(proxy, 10.0) # 10m di default se il segnale è perso
-                    d_saved = saved_distances.get(proxy, 10.0)
+                    d_current = self._current_distances.get(proxy, 20.0)
+                    d_saved = saved_distances.get(proxy, 20.0)
                     
                     euclidean_dist += (d_current - d_saved) ** 2
                 
