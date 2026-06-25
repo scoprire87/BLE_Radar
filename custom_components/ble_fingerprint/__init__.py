@@ -1,64 +1,62 @@
 import logging
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.storage import Store
-
-from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-SERVICE_SAVE_VERTEX = "save_vertex"
+STORAGE_VERSION = 1
+STORAGE_KEY = "ble_fingerprint_map"
+
 SERVICE_SAVE_VERTEX_SCHEMA = vol.Schema({
     vol.Required("room"): cv.string,
     vol.Required("vertex_id"): cv.string,
     vol.Required("distances"): dict,
+    vol.Optional("x"): vol.Any(vol.Coerce(float), None),
+    vol.Optional("y"): vol.Any(vol.Coerce(float), None),
 })
 
-# Le piattaforme che la nostra integrazione caricherà (il sensore)
-PLATFORMS = ["sensor"]
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Configura l'integrazione dalla UI."""
+async def async_setup(hass: HomeAssistant, config: dict):
     hass.data.setdefault(DOMAIN, {})
-
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-    stored_data = await store.async_load()
     
-    if stored_data is None:
-        stored_data = {"rooms": {}}
-        
-    hass.data[DOMAIN]["map_data"] = stored_data
-    hass.data[DOMAIN]["store"] = store
+    map_data = await store.async_load()
+    if map_data is None:
+        map_data = {"rooms": {}}
+    hass.data[DOMAIN]["map_data"] = map_data
 
-    async def handle_save_vertex(call: ServiceCall):
-        room = call.data["room"]
-        vertex_id = call.data["vertex_id"]
-        distances = call.data["distances"]
+    async def handle_save_vertex(call):
+        room = call.data.get("room")
+        vertex_id = str(call.data.get("vertex_id"))
+        raw_distances = call.data.get("distances")
+        x = call.data.get("x")
+        y = call.data.get("y")
 
-        _LOGGER.info(f"Salvataggio vertice {vertex_id} per la stanza: {room}")
+        # Filtro Sparso: teniamo solo distanze valide < 10.0
+        valid_distances = {k: float(v) for k, v in raw_distances.items() if float(v) < 10.0}
 
         rooms = hass.data[DOMAIN]["map_data"]["rooms"]
         if room not in rooms:
             rooms[room] = {}
-        rooms[room][vertex_id] = distances
+
+        rooms[room][vertex_id] = {
+            "distances": valid_distances,
+            "coords": {"x": x, "y": y}
+        }
 
         await store.async_save(hass.data[DOMAIN]["map_data"])
+        _LOGGER.info(f"Salvato vertice {vertex_id} in {room} (X:{x}, Y:{y}) con {len(valid_distances)} proxy attivi.")
 
     hass.services.async_register(
-        DOMAIN, SERVICE_SAVE_VERTEX, handle_save_vertex, schema=SERVICE_SAVE_VERTEX_SCHEMA
+        DOMAIN, "save_vertex", handle_save_vertex, schema=SERVICE_SAVE_VERTEX_SCHEMA
     )
-
-    # Inoltra il setup al file sensor.py
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Gestisce la disinstallazione dell'integrazione dalla UI."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop("map_data", None)
-        hass.data[DOMAIN].pop("store", None)
-    return unload_ok
+async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
+    hass.async_create_task(
+        hass.config_entries.async_forward_entry_setup(entry, "sensor")
+    )
+    return True
