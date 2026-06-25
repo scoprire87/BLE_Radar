@@ -5,15 +5,11 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
-    """Configura il sensore BLE Fingerprint tramite l'interfaccia UI (Config Flow)."""
-    
-    # La tua lista reale dei 15 proxy
     proxy_sensors = [
         "sensor.samsung_ale_distance_to_bagno",
         "sensor.samsung_ale_distance_to_bagno_taverna",
@@ -32,32 +28,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         "sensor.samsung_ale_distance_to_veranda"
     ]
     
-    sensor = BLEFingerprintSensor(hass, "Posizione Alessandro Fingerprint", proxy_sensors)
+    sensor = BLEFingerprintSensor(hass, "Posizione Alessandro", proxy_sensors)
     async_add_entities([sensor])
 
 
 class BLEFingerprintSensor(SensorEntity):
-    """Sensore che calcola la stanza basandosi sul fingerprinting vettoriale e la distanza euclidea."""
-
     def __init__(self, hass: HomeAssistant, name: str, proxy_sensors: list):
         self.hass = hass
         self._attr_name = name
         self._proxy_sensors = proxy_sensors
         self._attr_native_value = "Sconosciuta"
+        self._attr_extra_state_attributes = {"x": None, "y": None}
         self._current_distances = {}
-        
-        # Inizializza tutte le distanze a "fuori portata" (20 metri) per evitare blocchi
-        for proxy in proxy_sensors:
-            self._current_distances[proxy] = 20.0
 
     async def async_added_to_hass(self):
-        """Quando il sensore viene avviato, popola i dati e ascolta i cambiamenti."""
-        # Legge lo stato attuale di tutti i sensori all'avvio
         for proxy in self._proxy_sensors:
             state_obj = self.hass.states.get(proxy)
             if state_obj and state_obj.state not in ['unknown', 'unavailable']:
                 try:
-                    self._current_distances[proxy] = float(state_obj.state)
+                    val = float(state_obj.state)
+                    if val < 10.0:
+                        self._current_distances[proxy] = val
                 except ValueError:
                     pass
 
@@ -68,58 +59,95 @@ class BLEFingerprintSensor(SensorEntity):
         )
 
     async def _async_distance_changed(self, event):
-        """Si attiva istantaneamente ogni volta che un proxy aggiorna una distanza."""
         entity_id = event.data.get("entity_id")
         new_state = event.data.get("new_state")
 
         if new_state is None or new_state.state in ['unknown', 'unavailable']:
-            # Se un sensore va offline (troppo lontano), lo impostiamo a 20 metri
-            self._current_distances[entity_id] = 20.0
+            self._current_distances.pop(entity_id, None)
         else:
             try:
-                # Aggiorna il valore nel nostro vettore delle distanze correnti
-                self._current_distances[entity_id] = float(new_state.state)
+                val = float(new_state.state)
+                if val < 10.0:
+                    self._current_distances[entity_id] = val
+                else:
+                    self._current_distances.pop(entity_id, None)
             except ValueError:
-                self._current_distances[entity_id] = 20.0
+                self._current_distances.pop(entity_id, None)
 
-        self._calculate_room()
+        self._calculate_position()
 
-    def _calculate_room(self):
-        """Il motore matematico: confronta il vettore attuale con i vertici salvati nel file .storage."""
+    def _calculate_position(self):
         map_data = self.hass.data.get(DOMAIN, {}).get("map_data", {}).get("rooms", {})
-        
-        # Se non ci sono stanze mappate, ci fermiamo
-        if not map_data:
+        if not map_data: return
+
+        scored_vertices = []
+
+        for room_name, vertices in map_data.items():
+            for vertex_id, data in vertices.items():
+                saved_dist = data.get("distances", {})
+                coords = data.get("coords", {})
+                
+                # Matrice sparsa: considera solo i proxy in comune
+                common_proxies = set(self._current_distances.keys()) & set(saved_dist.keys())
+                
+                if len(common_proxies) == 0:
+                    continue
+
+                # Distanza Euclidea pesata
+                euclidean_dist = math.sqrt(sum((self._current_distances[s] - saved_dist[s])**2 for s in common_proxies))
+                # Normalizziamo in base al numero di proxy in comune per non penalizzare i punti con più dati
+                normalized_dist = euclidean_dist / len(common_proxies)
+                
+                scored_vertices.append({
+                    "room": room_name,
+                    "dist": normalized_dist,
+                    "x": coords.get("x"),
+                    "y": coords.get("y")
+                })
+
+        if not scored_vertices:
             return
 
-        best_room = "Sconosciuta"
-        min_distance = float('inf')
+        # Ordina dal più vicino al più lontano e prendi i migliori 3 (k-NN)
+        scored_vertices.sort(key=lambda v: v["dist"])
+        top_k = scored_vertices[:3]
+        
+        # Stanza principale (quella del vertice più vicino)
+        best_room = top_k[0]["room"]
 
-        # Itera su tutte le stanze e i loro vertici salvati
-        for room_name, vertices in map_data.items():
-            for vertex_id, saved_distances in vertices.items():
-                
-                # Calcola la Distanza Euclidea nello spazio N-dimensionale
-                euclidean_dist = 0.0
-                for proxy in self._proxy_sensors:
-                    d_current = self._current_distances.get(proxy, 20.0)
-                    d_saved = saved_distances.get(proxy, 20.0)
-                    
-                    euclidean_dist += (d_current - d_saved) ** 2
-                
-                euclidean_dist = math.sqrt(euclidean_dist)
+        # Calcolo Coordinate Baricentriche (IDW - Inverse Distance Weighting)
+        sum_weights = 0.0
+        sum_x = 0.0
+        sum_y = 0.0
 
-                # Trova il vertice con la "firma radio" più simile alla posizione attuale
-                if euclidean_dist < min_distance:
-                    min_distance = euclidean_dist
-                    best_room = room_name
+        for v in top_k:
+            if v["x"] is not None and v["y"] is not None:
+                # Epsilon per evitare divisione per zero
+                weight = 1.0 / (v["dist"] + 0.0001) 
+                sum_weights += weight
+                sum_x += v["x"] * weight
+                sum_y += v["y"] * weight
 
-        # Se la stanza vincente è diversa dalla precedente, aggiorna lo stato in Home Assistant
+        if sum_weights > 0:
+            calc_x = round(sum_x / sum_weights, 2)
+            calc_y = round(sum_y / sum_weights, 2)
+        else:
+            calc_x, calc_y = None, None
+
+        # Aggiorna lo stato solo se è cambiato
+        state_changed = False
         if self._attr_native_value != best_room:
             self._attr_native_value = best_room
+            state_changed = True
+            
+        if self._attr_extra_state_attributes.get("x") != calc_x or self._attr_extra_state_attributes.get("y") != calc_y:
+            self._attr_extra_state_attributes["x"] = calc_x
+            self._attr_extra_state_attributes["y"] = calc_y
+            state_changed = True
+
+        if state_changed:
             self.async_write_ha_state()
 
     @property
     def native_value(self):
-        """Ritorna lo stato finale che vedrai nella dashboard."""
         return self._attr_native_value
