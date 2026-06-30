@@ -1,8 +1,10 @@
 import logging
 import voluptuous as vol
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.storage import Store
+
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -18,13 +20,15 @@ SERVICE_SAVE_VERTEX_SCHEMA = vol.Schema({
     vol.Optional("y"): vol.Any(vol.Coerce(float), None),
 })
 
+
 async def async_setup(hass: HomeAssistant, config: dict):
     hass.data.setdefault(DOMAIN, {})
+
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-    
     map_data = await store.async_load()
     if map_data is None:
         map_data = {"rooms": {}}
+
     hass.data[DOMAIN]["map_data"] = map_data
 
     async def handle_save_vertex(call):
@@ -47,7 +51,9 @@ async def async_setup(hass: HomeAssistant, config: dict):
         }
 
         await store.async_save(hass.data[DOMAIN]["map_data"])
-        _LOGGER.info(f"Salvato vertice {vertex_id} in {room} (X:{x}, Y:{y}) con {len(valid_distances)} proxy attivi.")
+        _LOGGER.info(
+            f"Salvato vertice {vertex_id} in {room} (X:{x}, Y:{y}) con {len(valid_distances)} proxy attivi."
+        )
 
     hass.services.async_register(
         DOMAIN, "save_vertex", handle_save_vertex, schema=SERVICE_SAVE_VERTEX_SCHEMA
@@ -55,8 +61,13 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
     return True
 
-async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setup(entry, "sensor")
-    )
+
+async def async_setup_entry(hass: HomeAssistant, entry) -> bool:
+    """Imposta una config entry inoltrando il setup alla piattaforma sensor."""
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
     return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry) -> bool:
+    """Scarica una config entry, rimuovendo la piattaforma sensor."""
+    return await hass.config_entries.async_unload_platforms(entry, ["sensor"])
