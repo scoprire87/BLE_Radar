@@ -144,3 +144,50 @@ def estimate_position(scored: list[ScoredVertex], top_k: int = 3) -> Estimate | 
         y=round(sum_y / sum_weights, 2) if sum_weights > 0 else None,
         score=round(top[0].dist, 2),
     )
+
+
+def vertex_floor(data: dict[str, Any]) -> str | None:
+    """Piano di un vertice (None se non indicato)."""
+    floor = data.get("floor")
+    return str(floor) if floor not in (None, "") else None
+
+
+def room_floors(rooms: dict[str, dict[str, Any]]) -> dict[str, str | None]:
+    """Piano di ogni stanza: quello più frequente tra i suoi vertici."""
+    result: dict[str, str | None] = {}
+    for room, vertices in rooms.items():
+        counts: dict[str | None, int] = {}
+        for data in vertices.values():
+            floor = vertex_floor(data)
+            counts[floor] = counts.get(floor, 0) + 1
+        # a parità vince un piano indicato rispetto a "nessun piano"
+        result[room] = max(counts, key=lambda f: (counts[f], f is not None)) if counts else None
+    return result
+
+
+def vertices_by_floor(
+    rooms: dict[str, dict[str, Any]], scale: float = 1.0
+) -> dict[str | None, list[tuple[float, float, dict[str, float]]]]:
+    """Vertici con coordinate, raggruppati per piano, in metri.
+
+    Restituisce {piano: [(x_m, y_m, {proxy: distanza})]}.
+    """
+    result: dict[str | None, list[tuple[float, float, dict[str, float]]]] = {}
+    for vertices in rooms.values():
+        for data in vertices.values():
+            coords = data.get("coords") or {}
+            x, y = coords.get("x"), coords.get("y")
+            if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+                continue
+            distances = normalize_distances(
+                {
+                    k: float(v)
+                    for k, v in (data.get("distances") or {}).items()
+                    if isinstance(v, (int, float))
+                }
+            )
+            if distances:
+                result.setdefault(vertex_floor(data), []).append(
+                    (x / scale, y / scale, distances)
+                )
+    return result

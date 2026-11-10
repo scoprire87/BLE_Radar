@@ -83,7 +83,8 @@ async def test_position_room_change_and_unknown(hass, freezer):
     # spostamento in salotto: coordinate subito, stanza solo dopo la conferma
     await _move(hass, 5.0, 1.0)
     state = hass.states.get(ENTITY)
-    assert state.state == "Cucina" and state.attributes["x"] > 7
+    # coordinate subito verso il salotto (il filtro di Kalman le ammorbidisce)
+    assert state.state == "Cucina" and state.attributes["x"] > 5
     await _wait(hass, freezer, 4)
     assert hass.states.get(ENTITY).state == "Cucina"
     await _wait(hass, freezer, 2)
@@ -176,7 +177,7 @@ async def test_map_services(hass, freezer):
     with pytest.raises(ServiceValidationError):
         await _call(hass, "delete_room", {"room": "Studio"})
     await _call(hass, "delete_vertex", {"room": "Cucina", "vertex_id": "c1"})
-    assert (await _call(hass, "get_map", response=True)) == {"rooms": {}}
+    assert (await _call(hass, "get_map", response=True))["rooms"] == {}
 
 
 async def test_config_and_options_flow(hass, freezer):
@@ -197,13 +198,22 @@ async def test_config_and_options_flow(hass, freezer):
     assert result["type"] == FlowResultType.FORM
 
     # né dispositivo né sensori → errore
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "Posizione Tel"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"advanced": {}})
     assert result["errors"] == {"base": "no_sensors"}
 
+    # basta il dispositivo: il nome viene ricavato da lui
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "Posizione Tel", "device_id": device.id}
+        result["flow_id"], {"device_id": device.id, "advanced": {}}
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Posizione Telefono"
+
+    # lo stesso dispositivo non può essere aggiunto due volte
+    again = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    again = await hass.config_entries.flow.async_configure(
+        again["flow_id"], {"device_id": device.id, "advanced": {}}
+    )
+    assert again["type"] == FlowResultType.ABORT and again["reason"] == "already_configured"
     await hass.async_block_till_done()
     entry = result["result"]
     assert entry.state is ConfigEntryState.LOADED
@@ -216,21 +226,24 @@ async def test_config_and_options_flow(hass, freezer):
     hass.states.async_set("sensor.telefono_unfiltered_distance_to_cucina", "0.1")
     await hass.async_block_till_done()
     await _wait(hass, freezer, 6)
-    assert hass.states.get("sensor.posizione_tel").state == "Salotto"
+    assert hass.states.get("sensor.posizione_telefono").state == "Salotto"
 
     # opzioni: conferma disattivata → cambio stanza immediato dopo il reload
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] == FlowResultType.FORM
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {"device_id": device.id, "sensors": [], "confirmation_seconds": 0, "unknown_timeout": 0,
-         "max_distance": 8, "top_k": 1, "min_common_proxies": 1},
+        {"device_id": device.id, "confirmation_seconds": 0, "unknown_timeout": 0, "smoothing": False,
+         "advanced": {"sensors": [], "trilateration": True, "map_scale": 1, "max_distance": 8,
+                      "top_k": 1, "min_common_proxies": 1}},
     )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["top_k"] == 1 and entry.options["smoothing"] is False
     assert result["type"] == FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.LOADED
-    assert hass.states.get("sensor.posizione_tel").state == "Salotto"
+    assert hass.states.get("sensor.posizione_telefono").state == "Salotto"
     hass.states.async_set("sensor.telefono_distance_to_cucina", "1.0")
     hass.states.async_set("sensor.telefono_distance_to_salotto", "5.0")
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.posizione_tel").state == "Cucina"
+    assert hass.states.get("sensor.posizione_telefono").state == "Cucina"

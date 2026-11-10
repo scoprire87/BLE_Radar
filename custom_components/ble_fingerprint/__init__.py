@@ -24,6 +24,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
+from .fingerprint import proxy_key
+
 from .const import (
     CONF_NAME,
     CONF_SENSORS,
@@ -36,6 +38,7 @@ from .const import (
     SERVICE_GET_MAP,
     SERVICE_RECORD_VERTEX,
     SERVICE_SAVE_VERTEX,
+    SERVICE_SET_PROXY,
     SIGNAL_MAP_UPDATED,
     STORAGE_KEY,
     STORAGE_VERSION,
@@ -56,12 +59,16 @@ ATTR_DISTANCES = "distances"
 ATTR_X = "x"
 ATTR_Y = "y"
 ATTR_DURATION = "duration"
+ATTR_FLOOR = "floor"
+ATTR_PROXY = "proxy"
+ATTR_FACTOR = "factor"
 
 DEFAULT_RECORD_DURATION = 5
 MAX_RECORD_DURATION = 60
 
 _NON_EMPTY_STRING = vol.All(cv.string, vol.Strip, vol.Length(min=1))
 _OPTIONAL_COORD = vol.Any(None, vol.Coerce(float))
+_OPTIONAL_FLOOR = vol.Any(None, vol.All(cv.string, vol.Strip))
 
 SERVICE_SAVE_VERTEX_SCHEMA = vol.Schema({
     vol.Required(ATTR_ROOM): _NON_EMPTY_STRING,
@@ -69,6 +76,7 @@ SERVICE_SAVE_VERTEX_SCHEMA = vol.Schema({
     vol.Required(ATTR_DISTANCES): vol.Schema({cv.string: vol.Coerce(float)}),
     vol.Optional(ATTR_X): _OPTIONAL_COORD,
     vol.Optional(ATTR_Y): _OPTIONAL_COORD,
+    vol.Optional(ATTR_FLOOR): _OPTIONAL_FLOOR,
 })
 
 SERVICE_RECORD_VERTEX_SCHEMA = vol.Schema({
@@ -77,8 +85,19 @@ SERVICE_RECORD_VERTEX_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
     vol.Optional(ATTR_X): _OPTIONAL_COORD,
     vol.Optional(ATTR_Y): _OPTIONAL_COORD,
+    vol.Optional(ATTR_FLOOR): _OPTIONAL_FLOOR,
     vol.Optional(ATTR_DURATION, default=DEFAULT_RECORD_DURATION): vol.All(
         vol.Coerce(int), vol.Range(min=0, max=MAX_RECORD_DURATION)
+    ),
+})
+
+SERVICE_SET_PROXY_SCHEMA = vol.Schema({
+    vol.Required(ATTR_PROXY): _NON_EMPTY_STRING,
+    vol.Optional(ATTR_X): _OPTIONAL_COORD,
+    vol.Optional(ATTR_Y): _OPTIONAL_COORD,
+    vol.Optional(ATTR_FLOOR): _OPTIONAL_FLOOR,
+    vol.Optional(ATTR_FACTOR): vol.Any(
+        None, vol.All(vol.Coerce(float), vol.Range(min=0.3, max=3.0))
     ),
 })
 
@@ -102,15 +121,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         map_data = {}
     if not isinstance(map_data.get("rooms"), dict):
         map_data["rooms"] = {}
+    if not isinstance(map_data.get("proxies"), dict):
+        map_data["proxies"] = {}
 
     domain_data["map_data"] = map_data
+    domain_data["map_version"] = 1
     # sensori di posizione attivi, per entry_id (usati da record_vertex)
     domain_data.setdefault("entities", {})
 
     rooms: dict[str, dict[str, Any]] = map_data["rooms"]
+    proxy_overrides: dict[str, dict[str, Any]] = map_data["proxies"]
 
     async def _async_save_map() -> None:
         await store.async_save(map_data)
+        # i sensori ricalcolano proxy e piani quando la versione cambia
+        domain_data["map_version"] = domain_data.get("map_version", 0) + 1
         # ricalcola subito la posizione con la mappa aggiornata
         async_dispatcher_send(hass, SIGNAL_MAP_UPDATED)
 
@@ -120,8 +145,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         distances: dict[str, float],
         x: float | None,
         y: float | None,
+        floor: str | None = None,
     ) -> dict[str, Any]:
-        vertex = {"distances": distances, "coords": {"x": x, "y": y}}
+        vertex: dict[str, Any] = {"distances": distances, "coords": {"x": x, "y": y}}
+        if floor:
+            vertex["floor"] = floor
         rooms.setdefault(room, {})[vertex_id] = vertex
         await _async_save_map()
         _LOGGER.info(
@@ -169,6 +197,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             valid_distances,
             call.data.get(ATTR_X),
             call.data.get(ATTR_Y),
+            call.data.get(ATTR_FLOOR),
         )
 
     async def handle_record_vertex(call: ServiceCall) -> ServiceResponse:
@@ -201,7 +230,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         room: str = call.data[ATTR_ROOM]
         vertex_id: str = call.data[ATTR_VERTEX_ID]
         vertex = await _async_store_vertex(
-            room, vertex_id, distances, call.data.get(ATTR_X), call.data.get(ATTR_Y)
+            room,
+            vertex_id,
+            distances,
+            call.data.get(ATTR_X),
+            call.data.get(ATTR_Y),
+            call.data.get(ATTR_FLOOR),
         )
 
         if call.return_response:
@@ -238,8 +272,40 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         await _async_save_map()
         _LOGGER.info("Eliminata stanza %s dalla mappa", room)
 
+    async def handle_set_proxy(call: ServiceCall) -> None:
+        """Imposta (o rimuove) a mano posizione e correzione di un proxy."""
+        proxy = proxy_key(call.data[ATTR_PROXY])
+        x, y = call.data.get(ATTR_X), call.data.get(ATTR_Y)
+
+        if x is None and y is None:
+            if proxy_overrides.pop(proxy, None) is None:
+                raise ServiceValidationError(
+                    f"Nessuna posizione manuale impostata per il proxy {proxy}"
+                )
+            _LOGGER.info("Rimossa la posizione manuale del proxy %s", proxy)
+        elif x is None or y is None:
+            raise ServiceValidationError("Indica sia x sia y (oppure nessuno dei due)")
+        else:
+            override: dict[str, Any] = {"x": x, "y": y}
+            if floor := call.data.get(ATTR_FLOOR):
+                override["floor"] = floor
+            if (factor := call.data.get(ATTR_FACTOR)) is not None:
+                override["factor"] = factor
+            proxy_overrides[proxy] = override
+            _LOGGER.info("Posizione manuale del proxy %s: %s", proxy, override)
+
+        await _async_save_map()
+
     async def handle_get_map(call: ServiceCall) -> ServiceResponse:
-        return {"rooms": copy.deepcopy(rooms)}
+        return {
+            "rooms": copy.deepcopy(rooms),
+            "proxies": copy.deepcopy(proxy_overrides),
+            # posizione e correzione dei proxy stimate da ogni sensore attivo
+            "estimated_proxies": {
+                tracker.entity_id: tracker.proxy_diagnostics
+                for tracker in domain_data["entities"].values()
+            },
+        }
 
     hass.services.async_register(
         DOMAIN, SERVICE_SAVE_VERTEX, handle_save_vertex, schema=SERVICE_SAVE_VERTEX_SCHEMA
@@ -259,6 +325,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_DELETE_ROOM, handle_delete_room, schema=SERVICE_DELETE_ROOM_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_PROXY, handle_set_proxy, schema=SERVICE_SET_PROXY_SCHEMA
     )
     hass.services.async_register(
         DOMAIN,

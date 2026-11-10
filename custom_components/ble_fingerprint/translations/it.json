@@ -3,21 +3,34 @@
         "step": {
             "user": {
                 "title": "BLE Fingerprint Positioning",
-                "description": "Crea un sensore di posizione basato sulle distanze BLE del dispositivo.",
+                "description": "Scegli il dispositivo da tracciare: i suoi sensori di distanza (es. Bermuda) vengono trovati da soli.",
                 "data": {
-                    "name": "Nome del sensore",
                     "device_id": "Dispositivo tracciato",
-                    "sensors": "Sensori di distanza aggiuntivi"
+                    "name": "Nome del sensore (opzionale)"
                 },
                 "data_description": {
-                    "device_id": "Vengono usati automaticamente tutti i suoi sensori «distance to <proxy>» (es. Bermuda).",
-                    "sensors": "Sensori di distanza (in metri) da usare in aggiunta, o al posto, di quelli del dispositivo."
+                    "device_id": "Vengono usati tutti i suoi sensori «distance to <proxy>».",
+                    "name": "Se lo lasci vuoto: «Posizione <dispositivo>»."
+                },
+                "sections": {
+                    "advanced": {
+                        "name": "Avanzate",
+                        "data": {
+                            "sensors": "Sensori di distanza aggiuntivi"
+                        },
+                        "data_description": {
+                            "sensors": "Sensori di distanza (in metri) da usare in aggiunta, o al posto, di quelli del dispositivo."
+                        }
+                    }
                 }
             }
         },
         "error": {
             "no_sensors": "Nessun sensore di distanza trovato: scegli un dispositivo con sensori «distance to» attivi oppure seleziona i sensori a mano.",
             "name_required": "Inserisci un nome."
+        },
+        "abort": {
+            "already_configured": "Questo dispositivo è già tracciato."
         }
     },
     "options": {
@@ -26,21 +39,36 @@
                 "title": "Opzioni BLE Fingerprint",
                 "data": {
                     "device_id": "Dispositivo tracciato",
-                    "sensors": "Sensori di distanza aggiuntivi",
                     "confirmation_seconds": "Conferma cambio stanza",
                     "unknown_timeout": "Ritorno a «Sconosciuta»",
-                    "max_distance": "Distanza massima",
-                    "top_k": "Vertici più vicini (k)",
-                    "min_common_proxies": "Proxy in comune minimi"
+                    "smoothing": "Movimento fluido"
                 },
                 "data_description": {
-                    "device_id": "Vengono usati automaticamente tutti i suoi sensori «distance to <proxy>» (es. Bermuda).",
-                    "sensors": "Sensori di distanza (in metri) da usare in aggiunta, o al posto, di quelli del dispositivo.",
+                    "device_id": "Vengono usati tutti i suoi sensori «distance to <proxy>».",
                     "confirmation_seconds": "Secondi per cui la nuova stanza deve restare la migliore prima del cambio (0 = immediato).",
                     "unknown_timeout": "Secondi senza alcun proxy valido prima che la posizione diventi sconosciuta (0 = mai).",
-                    "max_distance": "Le distanze pari o superiori vengono ignorate; un proxy non visto è considerato a questa distanza.",
-                    "top_k": "Numero di vertici più simili usati per scegliere la stanza e calcolare le coordinate.",
-                    "min_common_proxies": "Proxy che misura attuale e vertice devono avere in comune perché il vertice sia considerato."
+                    "smoothing": "Filtro di Kalman sulle coordinate: meno salti, con un leggero ritardo nei movimenti."
+                },
+                "sections": {
+                    "advanced": {
+                        "name": "Avanzate",
+                        "data": {
+                            "sensors": "Sensori di distanza aggiuntivi",
+                            "trilateration": "Trilaterazione",
+                            "map_scale": "Unità della mappa per metro",
+                            "max_distance": "Distanza massima",
+                            "top_k": "Vertici più vicini (k)",
+                            "min_common_proxies": "Proxy in comune minimi"
+                        },
+                        "data_description": {
+                            "sensors": "Sensori di distanza (in metri) da usare in aggiunta, o al posto, di quelli del dispositivo.",
+                            "trilateration": "Stima la posizione dei proxy dai vertici con coordinate e la usa per affinare x/y insieme al fingerprint.",
+                            "map_scale": "1 se le coordinate dei vertici sono in metri, 100 se in centimetri, ecc.",
+                            "max_distance": "Le distanze pari o superiori vengono ignorate; un proxy non visto è considerato a questa distanza.",
+                            "top_k": "Numero di vertici più simili usati per scegliere la stanza e calcolare le coordinate.",
+                            "min_common_proxies": "Proxy che misura attuale e vertice devono avere in comune perché il vertice sia considerato."
+                        }
+                    }
                 }
             }
         },
@@ -67,11 +95,15 @@
                 },
                 "x": {
                     "name": "X",
-                    "description": "Coordinata X del punto (opzionale)."
+                    "description": "Coordinata X del punto (opzionale, nelle unità della mappa). Servono x e y per la trilaterazione."
                 },
                 "y": {
                     "name": "Y",
-                    "description": "Coordinata Y del punto (opzionale)."
+                    "description": "Coordinata Y del punto (opzionale, nelle unità della mappa)."
+                },
+                "floor": {
+                    "name": "Piano",
+                    "description": "Piano del punto (opzionale, es. «Terra», «Taverna»). Serve solo se hai più piani."
                 }
             }
         },
@@ -97,11 +129,15 @@
                 },
                 "x": {
                     "name": "X",
-                    "description": "Coordinata X del punto (opzionale)."
+                    "description": "Coordinata X del punto (opzionale, nelle unità della mappa). Servono x e y per la trilaterazione."
                 },
                 "y": {
                     "name": "Y",
-                    "description": "Coordinata Y del punto (opzionale)."
+                    "description": "Coordinata Y del punto (opzionale, nelle unità della mappa)."
+                },
+                "floor": {
+                    "name": "Piano",
+                    "description": "Piano del punto (opzionale, es. «Terra», «Taverna»). Serve solo se hai più piani."
                 }
             }
         },
@@ -131,7 +167,33 @@
         },
         "get_map": {
             "name": "Leggi mappa",
-            "description": "Restituisce la mappa salvata (stanze, vertici, distanze e coordinate)."
+            "description": "Restituisce la mappa salvata (stanze, vertici, proxy impostati a mano e proxy stimati)."
+        },
+        "set_proxy": {
+            "name": "Imposta proxy",
+            "description": "Imposta a mano la posizione di un proxy (di solito viene stimata dai vertici). Senza x e y rimuove l'impostazione manuale.",
+            "fields": {
+                "proxy": {
+                    "name": "Proxy",
+                    "description": "Nome del proxy (la parte dopo «distance_to_») o un suo sensore di distanza."
+                },
+                "x": {
+                    "name": "X",
+                    "description": "Coordinata X nelle unità della mappa."
+                },
+                "y": {
+                    "name": "Y",
+                    "description": "Coordinata Y nelle unità della mappa."
+                },
+                "floor": {
+                    "name": "Piano",
+                    "description": "Piano del punto (opzionale, es. «Terra», «Taverna»). Serve solo se hai più piani."
+                },
+                "factor": {
+                    "name": "Fattore di correzione",
+                    "description": "Distanza misurata / distanza reale (opzionale; se omesso viene stimato)."
+                }
+            }
         }
     }
 }

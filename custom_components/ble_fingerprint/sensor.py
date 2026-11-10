@@ -17,25 +17,33 @@ from homeassistant.core import (
     State,
     callback,
 )
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_CONFIRMATION_SECONDS,
     CONF_DEVICE,
+    CONF_MAP_SCALE,
     CONF_MAX_DISTANCE,
     CONF_MIN_COMMON_PROXIES,
     CONF_NAME,
     CONF_SENSORS,
+    CONF_SMOOTHING,
     CONF_TOP_K,
+    CONF_TRILATERATION,
     CONF_UNKNOWN_TIMEOUT,
     DEFAULT_CONFIRMATION_SECONDS,
+    DEFAULT_MAP_SCALE,
     DEFAULT_MAX_DISTANCE,
     DEFAULT_MIN_COMMON_PROXIES,
     DEFAULT_NAME,
+    DEFAULT_SMOOTHING,
     DEFAULT_TOP_K,
+    DEFAULT_TRILATERATION,
     DEFAULT_UNKNOWN_TIMEOUT,
     DOMAIN,
     SIGNAL_MAP_UPDATED,
@@ -46,7 +54,19 @@ from .fingerprint import (
     estimate_position,
     normalize_distances,
     proxy_key,
+    room_floors,
     score_vertices,
+    vertices_by_floor,
+)
+from .geometry import (
+    PositionFilter,
+    ProxyEstimate,
+    estimate_proxies,
+    fingerprint_quality,
+    fuse,
+    jump_weight,
+    map_bounds,
+    trilaterate,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -101,8 +121,9 @@ async def async_setup_entry(
     """Crea il sensore di posizione della config entry."""
     config: dict[str, Any] = {**entry.data, **entry.options}
 
+    device_id = config.get(CONF_DEVICE)
     proxy_sensors = async_resolve_proxy_sensors(
-        hass, config.get(CONF_DEVICE), config.get(CONF_SENSORS)
+        hass, device_id, config.get(CONF_SENSORS)
     )
     if not proxy_sensors:
         _LOGGER.warning(
@@ -127,9 +148,32 @@ async def async_setup_entry(
                 unknown_timeout=float(
                     config.get(CONF_UNKNOWN_TIMEOUT, DEFAULT_UNKNOWN_TIMEOUT)
                 ),
+                smoothing=bool(config.get(CONF_SMOOTHING, DEFAULT_SMOOTHING)),
+                trilateration=bool(
+                    config.get(CONF_TRILATERATION, DEFAULT_TRILATERATION)
+                ),
+                map_scale=float(config.get(CONF_MAP_SCALE, DEFAULT_MAP_SCALE) or 1.0),
+                device_info=_device_info(hass, entry, device_id),
             )
         ]
     )
+
+
+def _device_info(
+    hass: HomeAssistant, entry: ConfigEntry, device_id: str | None
+) -> DeviceInfo:
+    """Dispositivo del sensore, collegato a quello tracciato (es. Bermuda)."""
+    info = DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer="BLE Fingerprint",
+        model="Posizionamento BLE",
+        entry_type=dr.DeviceEntryType.SERVICE,
+    )
+    if device_id and (device := dr.async_get(hass).async_get(device_id)):
+        if device.identifiers:
+            info["via_device"] = next(iter(device.identifiers))
+    return info
 
 
 class BLEFingerprintSensor(SensorEntity):
@@ -149,6 +193,10 @@ class BLEFingerprintSensor(SensorEntity):
         top_k: int,
         min_common: int,
         unknown_timeout: float,
+        smoothing: bool = DEFAULT_SMOOTHING,
+        trilateration: bool = DEFAULT_TRILATERATION,
+        map_scale: float = DEFAULT_MAP_SCALE,
+        device_info: DeviceInfo | None = None,
     ) -> None:
         self._entry_id = entry_id
         self._attr_name = name
@@ -161,14 +209,22 @@ class BLEFingerprintSensor(SensorEntity):
         self._top_k = top_k
         self._min_common = min_common
         self._unknown_timeout = unknown_timeout
+        self._smoothing = smoothing
+        self._trilateration = trilateration
+        self._scale = map_scale if map_scale > 0 else 1.0
+        if device_info is not None:
+            self._attr_device_info = device_info
+
+        # --- Motore geometrico (calcolato dalla mappa, per piano) ---
+        self._room_floors: dict[str, str | None] = {}
+        self._proxy_model: dict[str | None, dict[str, ProxyEstimate]] = {}
+        self._floor_bounds: dict[str | None, tuple[float, float, float, float]] = {}
+        self._map_version: int | None = None
+        self._last_radii: dict[str, float] = {}
+        self._filter = PositionFilter()
 
         self._attr_native_value = UNKNOWN_ROOM
-        self._attr_extra_state_attributes = {
-            "x": None,
-            "y": None,
-            "score": None,
-            "proxies": 0,
-        }
+        self._attr_extra_state_attributes = _empty_attributes()
         # distanze valide attuali, per entity_id del sensore
         self._current_distances: dict[str, float] = {}
 
@@ -183,6 +239,62 @@ class BLEFingerprintSensor(SensorEntity):
     def current_distances(self) -> dict[str, float]:
         """Distanze valide attuali per chiave proxy (copia)."""
         return normalize_distances(self._current_distances)
+
+    @property
+    def proxy_diagnostics(self) -> dict[str, dict[str, dict]]:
+        """Proxy stimati per piano, nelle unità della mappa (servizio get_map)."""
+        self._async_refresh_model()
+        result: dict[str, dict[str, dict]] = {}
+        for floor, proxies in self._proxy_model.items():
+            floor_result = result.setdefault(str(floor) if floor is not None else "", {})
+            for proxy, estimate in proxies.items():
+                data = estimate.as_dict()
+                data["x"] = round(estimate.x * self._scale, 2)
+                data["y"] = round(estimate.y * self._scale, 2)
+                # residuo in metri, come le distanze
+                floor_result[proxy] = data
+        return result
+
+    @callback
+    def _async_refresh_model(self) -> None:
+        """Ricalcola piani, proxy e limiti della mappa se la mappa è cambiata."""
+        domain_data = self.hass.data.get(DOMAIN, {})
+        map_data = domain_data.get("map_data", {})
+        version = domain_data.get("map_version", 0)
+        if version == self._map_version:
+            return
+        self._map_version = version
+
+        rooms = map_data.get("rooms", {})
+        overrides = map_data.get("proxies", {})
+        self._room_floors = room_floors(rooms)
+
+        by_floor = vertices_by_floor(rooms, self._scale)
+        floors = set(by_floor) | {
+            (data.get("floor") or None) for data in overrides.values()
+        }
+
+        self._proxy_model = {}
+        self._floor_bounds = {}
+        for floor in floors:
+            vertices = by_floor.get(floor, [])
+            floor_overrides = {
+                proxy: {**data, "x": data["x"] / self._scale, "y": data["y"] / self._scale}
+                for proxy, data in overrides.items()
+                if (data.get("floor") or None) == floor
+                and isinstance(data.get("x"), (int, float))
+                and isinstance(data.get("y"), (int, float))
+            }
+            proxies = estimate_proxies(vertices, floor_overrides)
+            self._proxy_model[floor] = proxies
+            points = [(v[0], v[1]) for v in vertices] + [
+                (p.x, p.y) for p in proxies.values()
+            ]
+            if (bounds := map_bounds(points)) is not None:
+                self._floor_bounds[floor] = bounds
+
+        self._last_radii = {}
+        self._filter.reset()
 
     async def async_added_to_hass(self) -> None:
         """Legge lo stato iniziale dei proxy e si iscrive ai cambiamenti."""
@@ -262,7 +374,9 @@ class BLEFingerprintSensor(SensorEntity):
         rooms = self.hass.data.get(DOMAIN, {}).get("map_data", {}).get("rooms", {})
         if not rooms:
             return
+        self._async_refresh_model()
 
+        # --- 1. Fingerprint: stanza e coordinate dai vertici più simili ---
         scored = score_vertices(
             current,
             rooms,
@@ -274,12 +388,65 @@ class BLEFingerprintSensor(SensorEntity):
         if estimate is None:
             return
 
-        # --- Aggiorna le coordinate subito (movimento fluido sulla mappa) ---
+        floor = self._room_floors.get(estimate.room)
+        bounds = self._floor_bounds.get(floor)
+
+        fingerprint = None
+        if estimate.x is not None and estimate.y is not None:
+            fingerprint = (
+                (estimate.x / self._scale, estimate.y / self._scale),
+                fingerprint_quality(estimate.score),
+            )
+
+        # --- 2. Trilaterazione con i proxy stimati dalla mappa (BPS) ---
+        fix = None
+        if self._trilateration:
+            circles = []
+            radii: dict[str, float] = {}
+            for proxy, distance in current.items():
+                model = self._proxy_model.get(floor, {}).get(proxy)
+                if model is None:
+                    continue
+                radius = distance / model.factor
+                radii[proxy] = radius
+                weight = jump_weight(radius, self._last_radii.get(proxy))
+                circles.append((model.x, model.y, radius, weight))
+            self._last_radii = radii
+            fix = trilaterate(
+                circles,
+                start=fingerprint[0] if fingerprint else None,
+                bounds=bounds,
+            )
+
+        # --- 3. Fusione pesata per qualità e filtro di Kalman ---
+        fused = fuse(
+            fingerprint,
+            ((fix.x, fix.y), fix.quality) if fix is not None else None,
+        )
+        x = y = None
+        confidence = None
+        method = None
+        if fused is not None:
+            (fx, fy), confidence, method = fused
+            if self._smoothing:
+                fx, fy = self._filter.update(
+                    (fx, fy), dt_util.utcnow().timestamp(), floor
+                )
+                if bounds is not None:
+                    fx = min(max(fx, bounds[0]), bounds[2])
+                    fy = min(max(fy, bounds[1]), bounds[3])
+            x, y = round(fx * self._scale, 2), round(fy * self._scale, 2)
+
         new_attrs = {
-            "x": estimate.x,
-            "y": estimate.y,
+            "x": x,
+            "y": y,
+            "floor": floor,
+            "confidence": None if confidence is None else round(confidence, 2),
+            "method": method,
             "score": estimate.score,
             "proxies": len(current),
+            "trilateration_proxies": fix.proxies if fix else 0,
+            "trilateration_rms": round(fix.rms, 2) if fix else None,
         }
         attrs_changed = new_attrs != self._attr_extra_state_attributes
         self._attr_extra_state_attributes = new_attrs
@@ -331,10 +498,22 @@ class BLEFingerprintSensor(SensorEntity):
         self._cancel_confirmation()
         self._pending_room = None
         self._attr_native_value = UNKNOWN_ROOM
-        self._attr_extra_state_attributes = {
-            "x": None,
-            "y": None,
-            "score": None,
-            "proxies": 0,
-        }
+        self._attr_extra_state_attributes = _empty_attributes()
+        self._last_radii = {}
+        self._filter.reset()
         self.async_write_ha_state()
+
+
+def _empty_attributes() -> dict[str, Any]:
+    """Attributi del sensore quando la posizione è sconosciuta."""
+    return {
+        "x": None,
+        "y": None,
+        "floor": None,
+        "confidence": None,
+        "method": None,
+        "score": None,
+        "proxies": 0,
+        "trilateration_proxies": 0,
+        "trilateration_rms": None,
+    }

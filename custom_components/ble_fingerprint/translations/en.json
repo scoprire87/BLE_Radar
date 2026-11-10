@@ -3,21 +3,34 @@
         "step": {
             "user": {
                 "title": "BLE Fingerprint Positioning",
-                "description": "Create a position sensor based on the device's BLE distances.",
+                "description": "Pick the device to track: its distance sensors (e.g. Bermuda) are found automatically.",
                 "data": {
-                    "name": "Sensor name",
                     "device_id": "Tracked device",
-                    "sensors": "Additional distance sensors"
+                    "name": "Sensor name (optional)"
                 },
                 "data_description": {
-                    "device_id": "All of its “distance to <proxy>” sensors (e.g. Bermuda) are used automatically.",
-                    "sensors": "Distance sensors (in meters) to use in addition to, or instead of, the device ones."
+                    "device_id": "All of its “distance to <proxy>” sensors are used.",
+                    "name": "If left empty: “Posizione <device>”."
+                },
+                "sections": {
+                    "advanced": {
+                        "name": "Advanced",
+                        "data": {
+                            "sensors": "Additional distance sensors"
+                        },
+                        "data_description": {
+                            "sensors": "Distance sensors (in meters) to use in addition to, or instead of, the device ones."
+                        }
+                    }
                 }
             }
         },
         "error": {
             "no_sensors": "No distance sensor found: pick a device with enabled “distance to” sensors or select the sensors manually.",
             "name_required": "Enter a name."
+        },
+        "abort": {
+            "already_configured": "This device is already tracked."
         }
     },
     "options": {
@@ -26,21 +39,36 @@
                 "title": "BLE Fingerprint options",
                 "data": {
                     "device_id": "Tracked device",
-                    "sensors": "Additional distance sensors",
                     "confirmation_seconds": "Room change confirmation",
                     "unknown_timeout": "Back to “Sconosciuta” (unknown)",
-                    "max_distance": "Maximum distance",
-                    "top_k": "Nearest vertices (k)",
-                    "min_common_proxies": "Minimum common proxies"
+                    "smoothing": "Smooth movement"
                 },
                 "data_description": {
-                    "device_id": "All of its “distance to <proxy>” sensors (e.g. Bermuda) are used automatically.",
-                    "sensors": "Distance sensors (in meters) to use in addition to, or instead of, the device ones.",
+                    "device_id": "All of its “distance to <proxy>” sensors are used.",
                     "confirmation_seconds": "Seconds the new room must stay the best match before switching (0 = immediate).",
                     "unknown_timeout": "Seconds without any valid proxy before the position becomes unknown (0 = never).",
-                    "max_distance": "Distances at or above this are ignored; an unseen proxy is treated as being at this distance.",
-                    "top_k": "Number of most similar vertices used to pick the room and compute the coordinates.",
-                    "min_common_proxies": "Proxies the current reading and a vertex must share for the vertex to be considered."
+                    "smoothing": "Kalman filter on the coordinates: fewer jumps, with a slight lag when moving."
+                },
+                "sections": {
+                    "advanced": {
+                        "name": "Advanced",
+                        "data": {
+                            "sensors": "Additional distance sensors",
+                            "trilateration": "Trilateration",
+                            "map_scale": "Map units per metre",
+                            "max_distance": "Maximum distance",
+                            "top_k": "Nearest vertices (k)",
+                            "min_common_proxies": "Minimum common proxies"
+                        },
+                        "data_description": {
+                            "sensors": "Distance sensors (in meters) to use in addition to, or instead of, the device ones.",
+                            "trilateration": "Estimate the proxy positions from vertices with coordinates and use them to refine x/y together with the fingerprint.",
+                            "map_scale": "1 if the vertex coordinates are in metres, 100 if in centimetres, etc.",
+                            "max_distance": "Distances at or above this are ignored; an unseen proxy is treated as being at this distance.",
+                            "top_k": "Number of most similar vertices used to pick the room and compute the coordinates.",
+                            "min_common_proxies": "Proxies the current reading and a vertex must share for the vertex to be considered."
+                        }
+                    }
                 }
             }
         },
@@ -67,11 +95,15 @@
                 },
                 "x": {
                     "name": "X",
-                    "description": "Point X coordinate (optional)."
+                    "description": "Point X coordinate (optional, in map units). x and y are needed for trilateration."
                 },
                 "y": {
                     "name": "Y",
-                    "description": "Point Y coordinate (optional)."
+                    "description": "Point Y coordinate (optional, in map units)."
+                },
+                "floor": {
+                    "name": "Floor",
+                    "description": "Floor of the point (optional, e.g. “Ground”, “Basement”). Only needed with several floors."
                 }
             }
         },
@@ -97,11 +129,15 @@
                 },
                 "x": {
                     "name": "X",
-                    "description": "Point X coordinate (optional)."
+                    "description": "Point X coordinate (optional, in map units). x and y are needed for trilateration."
                 },
                 "y": {
                     "name": "Y",
-                    "description": "Point Y coordinate (optional)."
+                    "description": "Point Y coordinate (optional, in map units)."
+                },
+                "floor": {
+                    "name": "Floor",
+                    "description": "Floor of the point (optional, e.g. “Ground”, “Basement”). Only needed with several floors."
                 }
             }
         },
@@ -131,7 +167,33 @@
         },
         "get_map": {
             "name": "Get map",
-            "description": "Return the saved map (rooms, vertices, distances and coordinates)."
+            "description": "Return the saved map (rooms, vertices, manually set proxies and estimated proxies)."
+        },
+        "set_proxy": {
+            "name": "Set proxy",
+            "description": "Manually set a proxy position (normally estimated from the vertices). Without x and y the manual setting is removed.",
+            "fields": {
+                "proxy": {
+                    "name": "Proxy",
+                    "description": "Proxy name (the part after “distance_to_”) or one of its distance sensors."
+                },
+                "x": {
+                    "name": "X",
+                    "description": "X coordinate in map units."
+                },
+                "y": {
+                    "name": "Y",
+                    "description": "Y coordinate in map units."
+                },
+                "floor": {
+                    "name": "Floor",
+                    "description": "Floor of the point (optional, e.g. “Ground”, “Basement”). Only needed with several floors."
+                },
+                "factor": {
+                    "name": "Correction factor",
+                    "description": "Measured distance / real distance (optional; estimated if omitted)."
+                }
+            }
         }
     }
 }

@@ -19,18 +19,22 @@ save_vertex:
       example: 3.5
       selector:
         number:
-          min: -1000
-          max: 1000
+          min: -100000
+          max: 100000
           step: 0.01
           mode: box
     y:
       example: 1.2
       selector:
         number:
-          min: -1000
-          max: 1000
+          min: -100000
+          max: 100000
           step: 0.01
           mode: box
+    floor:
+      example: "Taverna"
+      selector:
+        text:
 
 record_vertex:
   fields:
@@ -63,18 +67,22 @@ record_vertex:
       example: 3.5
       selector:
         number:
-          min: -1000
-          max: 1000
+          min: -100000
+          max: 100000
           step: 0.01
           mode: box
     y:
       example: 1.2
       selector:
         number:
-          min: -1000
-          max: 1000
+          min: -100000
+          max: 100000
           step: 0.01
           mode: box
+    floor:
+      example: "Taverna"
+      selector:
+        text:
 
 delete_vertex:
   fields:
@@ -98,3 +106,39 @@ delete_room:
         text:
 
 get_map:
+
+set_proxy:
+  fields:
+    proxy:
+      required: true
+      example: "cucina"
+      selector:
+        text:
+    x:
+      example: 3.5
+      selector:
+        number:
+          min: -100000
+          max: 100000
+          step: 0.01
+          mode: box
+    y:
+      example: 1.2
+      selector:
+        number:
+          min: -100000
+          max: 100000
+          step: 0.01
+          mode: box
+    floor:
+      example: "Taverna"
+      selector:
+        text:
+    factor:
+      example: 1.2
+      selector:
+        number:
+          min: 0.3
+          max: 3
+          step: 0.01
+          mode: box
