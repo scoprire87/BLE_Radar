@@ -1,10 +1,14 @@
 {
-  "domain": "ble_fingerprint",
-  "name": "BLE Fingerprint Positioning",
-  "codeowners": ["@alessandro"],
-  "dependencies": ["bluetooth"],
-  "integration_type": "hub",
-  "iot_class": "local_push",
-  "config_flow": true,
-  "version": "1.0.0"
+    "domain": "ble_fingerprint",
+    "name": "BLE Fingerprint Positioning",
+    "codeowners": [
+        "@scoprire87"
+    ],
+    "config_flow": true,
+    "documentation": "https://github.com/scoprire87/BLE_Radar",
+    "integration_type": "hub",
+    "iot_class": "calculated",
+    "issue_tracker": "https://github.com/scoprire87/BLE_Radar/issues",
+    "requirements": [],
+    "version": "1.1.0"
 }

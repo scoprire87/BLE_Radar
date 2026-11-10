@@ -1,0 +1,137 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "BLE Fingerprint Positioning",
+                "description": "Create a position sensor based on the device's BLE distances.",
+                "data": {
+                    "name": "Sensor name",
+                    "device_id": "Tracked device",
+                    "sensors": "Additional distance sensors"
+                },
+                "data_description": {
+                    "device_id": "All of its “distance to <proxy>” sensors (e.g. Bermuda) are used automatically.",
+                    "sensors": "Distance sensors (in meters) to use in addition to, or instead of, the device ones."
+                }
+            }
+        },
+        "error": {
+            "no_sensors": "No distance sensor found: pick a device with enabled “distance to” sensors or select the sensors manually.",
+            "name_required": "Enter a name."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "BLE Fingerprint options",
+                "data": {
+                    "device_id": "Tracked device",
+                    "sensors": "Additional distance sensors",
+                    "confirmation_seconds": "Room change confirmation",
+                    "unknown_timeout": "Back to “Sconosciuta” (unknown)",
+                    "max_distance": "Maximum distance",
+                    "top_k": "Nearest vertices (k)",
+                    "min_common_proxies": "Minimum common proxies"
+                },
+                "data_description": {
+                    "device_id": "All of its “distance to <proxy>” sensors (e.g. Bermuda) are used automatically.",
+                    "sensors": "Distance sensors (in meters) to use in addition to, or instead of, the device ones.",
+                    "confirmation_seconds": "Seconds the new room must stay the best match before switching (0 = immediate).",
+                    "unknown_timeout": "Seconds without any valid proxy before the position becomes unknown (0 = never).",
+                    "max_distance": "Distances at or above this are ignored; an unseen proxy is treated as being at this distance.",
+                    "top_k": "Number of most similar vertices used to pick the room and compute the coordinates.",
+                    "min_common_proxies": "Proxies the current reading and a vertex must share for the vertex to be considered."
+                }
+            }
+        },
+        "error": {
+            "no_sensors": "No distance sensor found: pick a device with enabled “distance to” sensors or select the sensors manually."
+        }
+    },
+    "services": {
+        "save_vertex": {
+            "name": "Save vertex",
+            "description": "Save a reference point (fingerprint) in the map with manually provided distances.",
+            "fields": {
+                "room": {
+                    "name": "Room",
+                    "description": "Room name."
+                },
+                "vertex_id": {
+                    "name": "Vertex ID",
+                    "description": "Unique point identifier within the room (overwritten if it exists)."
+                },
+                "distances": {
+                    "name": "Distances",
+                    "description": "Map of distance sensor → measured meters at this point."
+                },
+                "x": {
+                    "name": "X",
+                    "description": "Point X coordinate (optional)."
+                },
+                "y": {
+                    "name": "Y",
+                    "description": "Point Y coordinate (optional)."
+                }
+            }
+        },
+        "record_vertex": {
+            "name": "Record vertex",
+            "description": "Read the device's current distances (median over the given duration) and save them as a vertex. Stand still at the point while recording.",
+            "fields": {
+                "room": {
+                    "name": "Room",
+                    "description": "Room name."
+                },
+                "vertex_id": {
+                    "name": "Vertex ID",
+                    "description": "Unique point identifier within the room (overwritten if it exists)."
+                },
+                "entity_id": {
+                    "name": "Position sensor",
+                    "description": "BLE Fingerprint sensor to read the distances from (only needed if you have more than one)."
+                },
+                "duration": {
+                    "name": "Duration",
+                    "description": "Sampling seconds (0 = instant reading)."
+                },
+                "x": {
+                    "name": "X",
+                    "description": "Point X coordinate (optional)."
+                },
+                "y": {
+                    "name": "Y",
+                    "description": "Point Y coordinate (optional)."
+                }
+            }
+        },
+        "delete_vertex": {
+            "name": "Delete vertex",
+            "description": "Delete a vertex from the map.",
+            "fields": {
+                "room": {
+                    "name": "Room",
+                    "description": "Room name."
+                },
+                "vertex_id": {
+                    "name": "Vertex ID",
+                    "description": "Identifier of the vertex to delete."
+                }
+            }
+        },
+        "delete_room": {
+            "name": "Delete room",
+            "description": "Delete a room and all of its vertices from the map.",
+            "fields": {
+                "room": {
+                    "name": "Room",
+                    "description": "Room name."
+                }
+            }
+        },
+        "get_map": {
+            "name": "Get map",
+            "description": "Return the saved map (rooms, vertices, distances and coordinates)."
+        }
+    }
+}
