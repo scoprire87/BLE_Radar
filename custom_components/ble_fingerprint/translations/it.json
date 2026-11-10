@@ -3,17 +3,55 @@
         "step": {
             "user": {
                 "title": "BLE Fingerprint Positioning",
-                "description": "Crea il sensore di posizione basato sulle distanze BLE."
+                "description": "Crea un sensore di posizione basato sulle distanze BLE del dispositivo.",
+                "data": {
+                    "name": "Nome del sensore",
+                    "device_id": "Dispositivo tracciato",
+                    "sensors": "Sensori di distanza aggiuntivi"
+                },
+                "data_description": {
+                    "device_id": "Vengono usati automaticamente tutti i suoi sensori «distance to <proxy>» (es. Bermuda).",
+                    "sensors": "Sensori di distanza (in metri) da usare in aggiunta, o al posto, di quelli del dispositivo."
+                }
             }
         },
-        "abort": {
-            "single_instance_allowed": "L'integrazione è già configurata."
+        "error": {
+            "no_sensors": "Nessun sensore di distanza trovato: scegli un dispositivo con sensori «distance to» attivi oppure seleziona i sensori a mano.",
+            "name_required": "Inserisci un nome."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Opzioni BLE Fingerprint",
+                "data": {
+                    "device_id": "Dispositivo tracciato",
+                    "sensors": "Sensori di distanza aggiuntivi",
+                    "confirmation_seconds": "Conferma cambio stanza",
+                    "unknown_timeout": "Ritorno a «Sconosciuta»",
+                    "max_distance": "Distanza massima",
+                    "top_k": "Vertici più vicini (k)",
+                    "min_common_proxies": "Proxy in comune minimi"
+                },
+                "data_description": {
+                    "device_id": "Vengono usati automaticamente tutti i suoi sensori «distance to <proxy>» (es. Bermuda).",
+                    "sensors": "Sensori di distanza (in metri) da usare in aggiunta, o al posto, di quelli del dispositivo.",
+                    "confirmation_seconds": "Secondi per cui la nuova stanza deve restare la migliore prima del cambio (0 = immediato).",
+                    "unknown_timeout": "Secondi senza alcun proxy valido prima che la posizione diventi sconosciuta (0 = mai).",
+                    "max_distance": "Le distanze pari o superiori vengono ignorate; un proxy non visto è considerato a questa distanza.",
+                    "top_k": "Numero di vertici più simili usati per scegliere la stanza e calcolare le coordinate.",
+                    "min_common_proxies": "Proxy che misura attuale e vertice devono avere in comune perché il vertice sia considerato."
+                }
+            }
+        },
+        "error": {
+            "no_sensors": "Nessun sensore di distanza trovato: scegli un dispositivo con sensori «distance to» attivi oppure seleziona i sensori a mano."
         }
     },
     "services": {
         "save_vertex": {
             "name": "Salva vertice",
-            "description": "Salva un punto di riferimento (fingerprint) nella mappa.",
+            "description": "Salva un punto di riferimento (fingerprint) nella mappa indicando le distanze a mano.",
             "fields": {
                 "room": {
                     "name": "Stanza",
@@ -36,6 +74,64 @@
                     "description": "Coordinata Y del punto (opzionale)."
                 }
             }
+        },
+        "record_vertex": {
+            "name": "Registra vertice",
+            "description": "Legge le distanze attuali del dispositivo (mediana sulla durata indicata) e le salva come vertice. Resta fermo nel punto durante la registrazione.",
+            "fields": {
+                "room": {
+                    "name": "Stanza",
+                    "description": "Nome della stanza."
+                },
+                "vertex_id": {
+                    "name": "ID vertice",
+                    "description": "Identificativo univoco del punto nella stanza (se esiste viene sovrascritto)."
+                },
+                "entity_id": {
+                    "name": "Sensore di posizione",
+                    "description": "Sensore BLE Fingerprint da cui leggere le distanze (necessario solo se ne hai più di uno)."
+                },
+                "duration": {
+                    "name": "Durata",
+                    "description": "Secondi di campionamento (0 = lettura istantanea)."
+                },
+                "x": {
+                    "name": "X",
+                    "description": "Coordinata X del punto (opzionale)."
+                },
+                "y": {
+                    "name": "Y",
+                    "description": "Coordinata Y del punto (opzionale)."
+                }
+            }
+        },
+        "delete_vertex": {
+            "name": "Elimina vertice",
+            "description": "Elimina un vertice dalla mappa.",
+            "fields": {
+                "room": {
+                    "name": "Stanza",
+                    "description": "Nome della stanza."
+                },
+                "vertex_id": {
+                    "name": "ID vertice",
+                    "description": "Identificativo del vertice da eliminare."
+                }
+            }
+        },
+        "delete_room": {
+            "name": "Elimina stanza",
+            "description": "Elimina una stanza e tutti i suoi vertici dalla mappa.",
+            "fields": {
+                "room": {
+                    "name": "Stanza",
+                    "description": "Nome della stanza."
+                }
+            }
+        },
+        "get_map": {
+            "name": "Leggi mappa",
+            "description": "Restituisce la mappa salvata (stanze, vertici, distanze e coordinate)."
         }
     }
 }

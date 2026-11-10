@@ -31,3 +31,70 @@ save_vertex:
           max: 1000
           step: 0.01
           mode: box
+
+record_vertex:
+  fields:
+    room:
+      required: true
+      example: "Cucina"
+      selector:
+        text:
+    vertex_id:
+      required: true
+      example: "cucina_1"
+      selector:
+        text:
+    entity_id:
+      example: "sensor.posizione_alessandro"
+      selector:
+        entity:
+          integration: ble_fingerprint
+          domain: sensor
+    duration:
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: s
+          mode: box
+    x:
+      example: 3.5
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.01
+          mode: box
+    y:
+      example: 1.2
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.01
+          mode: box
+
+delete_vertex:
+  fields:
+    room:
+      required: true
+      example: "Cucina"
+      selector:
+        text:
+    vertex_id:
+      required: true
+      example: "cucina_1"
+      selector:
+        text:
+
+delete_room:
+  fields:
+    room:
+      required: true
+      example: "Cucina"
+      selector:
+        text:
+
+get_map:
