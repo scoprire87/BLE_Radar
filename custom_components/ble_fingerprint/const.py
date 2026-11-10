@@ -13,6 +13,11 @@ CONF_MAX_DISTANCE = "max_distance"
 CONF_TOP_K = "top_k"
 CONF_MIN_COMMON_PROXIES = "min_common_proxies"
 CONF_UNKNOWN_TIMEOUT = "unknown_timeout"
+CONF_SMOOTHING = "smoothing"
+CONF_TRILATERATION = "trilateration"
+CONF_MAP_SCALE = "map_scale"
+# sezione comprimibile delle opzioni avanzate
+SECTION_ADVANCED = "advanced"
 
 DEFAULT_NAME = "Posizione"
 # Secondi per cui la nuova stanza deve restare la migliore prima del cambio
@@ -25,6 +30,12 @@ DEFAULT_TOP_K = 3
 DEFAULT_MIN_COMMON_PROXIES = 2
 # Secondi senza alcun proxy valido prima di tornare a "Sconosciuta" (0 = mai)
 DEFAULT_UNKNOWN_TIMEOUT = 60
+# Filtro di Kalman sulle coordinate
+DEFAULT_SMOOTHING = True
+# Trilaterazione con i proxy stimati dalla mappa (fusa con il fingerprint)
+DEFAULT_TRILATERATION = True
+# Unità della mappa per metro (1 = coordinate in metri, 100 = centimetri, ...)
+DEFAULT_MAP_SCALE = 1.0
 
 # Compatibilità: soglia usata dal servizio save_vertex
 MAX_DISTANCE = DEFAULT_MAX_DISTANCE
@@ -41,6 +52,7 @@ SERVICE_RECORD_VERTEX = "record_vertex"
 SERVICE_DELETE_VERTEX = "delete_vertex"
 SERVICE_DELETE_ROOM = "delete_room"
 SERVICE_GET_MAP = "get_map"
+SERVICE_SET_PROXY = "set_proxy"
 
 SIGNAL_MAP_UPDATED = f"{DOMAIN}_map_updated"
 
