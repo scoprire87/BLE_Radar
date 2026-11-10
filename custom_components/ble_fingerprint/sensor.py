@@ -72,6 +72,15 @@ from .geometry import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def is_distance_sensor(entity: er.RegistryEntry) -> bool:
+    """Sensore `..._distance_to_<proxy>` (come quelli di Bermuda), non "unfiltered"."""
+    return (
+        entity.domain == "sensor"
+        and DISTANCE_TO_MARKER in entity.entity_id
+        and "unfiltered" not in entity.entity_id
+    )
+
+
 @callback
 def async_resolve_proxy_sensors(
     hass: HomeAssistant, device_id: str | None, extra_sensors: list[str] | None
@@ -85,12 +94,9 @@ def async_resolve_proxy_sensors(
 
     if device_id:
         registry = er.async_get(hass)
+        # solo entità attive (le disabilitate non hanno stato)
         for entity in er.async_entries_for_device(registry, device_id):
-            if (
-                entity.domain == "sensor"
-                and DISTANCE_TO_MARKER in entity.entity_id
-                and "unfiltered" not in entity.entity_id
-            ):
+            if is_distance_sensor(entity):
                 sensors.append(entity.entity_id)
 
     for entity_id in extra_sensors or []:

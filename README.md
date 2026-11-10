@@ -20,13 +20,16 @@ Non richiede librerie esterne (niente numpy/scipy).
 3. Impostazioni → Dispositivi e servizi → Aggiungi integrazione → *BLE Fingerprint Positioning*.
 4. Scegli il **dispositivo** da tracciare: vengono usati automaticamente tutti i suoi
    sensori `..._distance_to_<proxy>` attivi e il nome diventa «Posizione <dispositivo>».
-   Nella sezione *Avanzate* puoi aggiungere sensori di distanza a mano.
+   Se usi [Bermuda](https://github.com/agittins/bermuda) l'elenco mostra solo i
+   dispositivi che Bermuda traccia. Nella sezione *Avanzate* puoi aggiungere sensori
+   di distanza a mano (anche di altre integrazioni).
 
 Puoi aggiungere l'integrazione più volte per tracciare più dispositivi: la mappa è
 condivisa, perché i proxy vengono riconosciuti dalla parte finale dell'entity_id
 (`sensor.telefono_distance_to_cucina` → `cucina`).
 
-> Se aggiungi un nuovo proxy, ricarica l'integrazione per includere il nuovo sensore.
+Quando Bermuda crea un nuovo sensore di distanza per il dispositivo (ad esempio
+perché hai aggiunto uno Shelly), l'integrazione lo include da sola, senza ricaricarla.
 
 ## Creare la mappa
 

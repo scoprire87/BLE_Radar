@@ -73,25 +73,48 @@ def _number(minimum: float, maximum: float, step: float, unit: str | None = None
     return selector.NumberSelector(config)
 
 
-_DEVICE = selector.DeviceSelector()
+BERMUDA_DOMAIN = "bermuda"
+
 _SENSORS = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", multiple=True)
 )
 
-USER_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_DEVICE): _DEVICE,
-        vol.Optional(CONF_NAME): selector.TextSelector(),
-        vol.Required(SECTION_ADVANCED): section(
-            vol.Schema({vol.Optional(CONF_SENSORS): _SENSORS}),
-            {"collapsed": True},
-        ),
-    }
-)
+def _device_selector(hass) -> selector.DeviceSelector:
+    """Selettore del dispositivo: se Bermuda è installato, solo i suoi dispositivi.
+
+    Così l'elenco mostra soltanto i dispositivi effettivamente tracciati via BLE.
+    Senza Bermuda (sensori di distanza da altre integrazioni) mostra tutti i
+    dispositivi.
+    """
+    if hass.config_entries.async_entries(BERMUDA_DOMAIN):
+        return selector.DeviceSelector(
+            selector.DeviceSelectorConfig(integration=BERMUDA_DOMAIN)
+        )
+    return selector.DeviceSelector()
+
+
+def _user_schema(hass) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Optional(CONF_DEVICE): _device_selector(hass),
+            vol.Optional(CONF_NAME): selector.TextSelector(),
+            vol.Required(SECTION_ADVANCED): section(
+                vol.Schema({vol.Optional(CONF_SENSORS): _SENSORS}),
+                {"collapsed": True},
+            ),
+        }
+    )
+
+
+def _options_schema(hass) -> vol.Schema:
+    # il dispositivo è il primo campo del modulo
+    return vol.Schema(
+        {vol.Optional(CONF_DEVICE): _device_selector(hass), **OPTIONS_SCHEMA.schema}
+    )
+
 
 OPTIONS_SCHEMA = vol.Schema(
     {
-        vol.Optional(CONF_DEVICE): _DEVICE,
         vol.Required(CONF_CONFIRMATION_SECONDS): _number(0, 120, 1, "s"),
         vol.Required(CONF_UNKNOWN_TIMEOUT): _number(0, 3600, 1, "s"),
         vol.Required(CONF_SMOOTHING): selector.BooleanSelector(),
@@ -160,7 +183,9 @@ class BLEFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=self.add_suggested_values_to_schema(USER_SCHEMA, user_input),
+            data_schema=self.add_suggested_values_to_schema(
+                _user_schema(self.hass), user_input
+            ),
             errors=errors,
         )
 
@@ -214,6 +239,8 @@ class BLEFingerprintOptionsFlow(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(OPTIONS_SCHEMA, suggested),
+            data_schema=self.add_suggested_values_to_schema(
+                _options_schema(self.hass), suggested
+            ),
             errors=errors,
         )

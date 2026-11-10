@@ -13,13 +13,16 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, Platform
 from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
     HomeAssistant,
     ServiceCall,
     ServiceResponse,
     SupportsResponse,
+    callback,
 )
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
@@ -27,6 +30,7 @@ from homeassistant.helpers.typing import ConfigType
 from .fingerprint import proxy_key
 
 from .const import (
+    CONF_DEVICE,
     CONF_NAME,
     CONF_SENSORS,
     DOMAIN,
@@ -362,7 +366,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Imposta una config entry inoltrando il setup alla piattaforma sensor."""
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
+
+    if device_id := {**entry.data, **entry.options}.get(CONF_DEVICE):
+        entry.async_on_unload(_async_watch_device_sensors(hass, entry, device_id))
+
     return True
+
+
+@callback
+def _async_watch_device_sensors(
+    hass: HomeAssistant, entry: ConfigEntry, device_id: str
+) -> CALLBACK_TYPE:
+    """Ricarica la entry quando il dispositivo ottiene un nuovo sensore di distanza.
+
+    Succede quando Bermuda vede il telefono da un nuovo proxy (o quando un
+    sensore viene riattivato): così non serve ricaricare l'integrazione a mano.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from .sensor import async_resolve_proxy_sensors, is_distance_sensor
+
+    known = set(async_resolve_proxy_sensors(hass, device_id, None))
+
+    @callback
+    def _async_registry_updated(
+        event: Event[er.EventEntityRegistryUpdatedData],
+    ) -> None:
+        if event.data["action"] not in ("create", "update"):
+            return
+        entity = er.async_get(hass).async_get(event.data["entity_id"])
+        if (
+            entity is None
+            or entity.device_id != device_id
+            or entity.disabled_by is not None
+            or not is_distance_sensor(entity)
+            or entity.entity_id in known
+        ):
+            return
+        known.add(entity.entity_id)
+        _LOGGER.info(
+            "%s: nuovo sensore di distanza %s, ricarico", entry.title, entity.entity_id
+        )
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+
+    return hass.bus.async_listen(
+        er.EVENT_ENTITY_REGISTRY_UPDATED, _async_registry_updated
+    )
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
