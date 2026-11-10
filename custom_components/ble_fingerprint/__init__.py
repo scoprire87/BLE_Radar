@@ -1,45 +1,68 @@
+"""Integrazione BLE Fingerprint: posizionamento indoor tramite fingerprint BLE."""
+from __future__ import annotations
+
 import logging
+import math
+
 import voluptuous as vol
 
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    MAX_DISTANCE,
+    SIGNAL_MAP_UPDATED,
+    SERVICE_SAVE_VERTEX,
+    STORAGE_KEY,
+    STORAGE_VERSION,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-STORAGE_VERSION = 1
-STORAGE_KEY = "ble_fingerprint_map"
+PLATFORMS = [Platform.SENSOR]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 SERVICE_SAVE_VERTEX_SCHEMA = vol.Schema({
-    vol.Required("room"): cv.string,
-    vol.Required("vertex_id"): cv.string,
-    vol.Required("distances"): dict,
-    vol.Optional("x"): vol.Any(vol.Coerce(float), None),
-    vol.Optional("y"): vol.Any(vol.Coerce(float), None),
+    vol.Required("room"): vol.All(cv.string, vol.Strip, vol.Length(min=1)),
+    vol.Required("vertex_id"): vol.All(cv.string, vol.Strip, vol.Length(min=1)),
+    vol.Required("distances"): vol.Schema({cv.string: vol.Coerce(float)}),
+    vol.Optional("x"): vol.Any(None, vol.Coerce(float)),
+    vol.Optional("y"): vol.Any(None, vol.Coerce(float)),
 })
 
 
-async def async_setup(hass: HomeAssistant, config: dict):
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Carica la mappa salvata e registra il servizio save_vertex."""
     hass.data.setdefault(DOMAIN, {})
 
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     map_data = await store.async_load()
-    if map_data is None:
-        map_data = {"rooms": {}}
+    if not isinstance(map_data, dict):
+        map_data = {}
+    map_data.setdefault("rooms", {})
 
     hass.data[DOMAIN]["map_data"] = map_data
 
-    async def handle_save_vertex(call):
-        room = call.data.get("room")
-        vertex_id = str(call.data.get("vertex_id"))
-        raw_distances = call.data.get("distances")
+    async def handle_save_vertex(call: ServiceCall) -> None:
+        room: str = call.data["room"]
+        vertex_id: str = call.data["vertex_id"]
+        raw_distances: dict[str, float] = call.data["distances"]
         x = call.data.get("x")
         y = call.data.get("y")
 
-        # Filtro Sparso: teniamo solo distanze valide < 10.0
-        valid_distances = {k: float(v) for k, v in raw_distances.items() if float(v) < 10.0}
+        # Filtro Sparso: teniamo solo distanze valide (0 <= d < MAX_DISTANCE)
+        valid_distances = {
+            k: v
+            for k, v in raw_distances.items()
+            if math.isfinite(v) and 0.0 <= v < MAX_DISTANCE
+        }
 
         rooms = hass.data[DOMAIN]["map_data"]["rooms"]
         if room not in rooms:
@@ -51,23 +74,30 @@ async def async_setup(hass: HomeAssistant, config: dict):
         }
 
         await store.async_save(hass.data[DOMAIN]["map_data"])
+        # ricalcola subito la posizione con la mappa aggiornata
+        async_dispatcher_send(hass, SIGNAL_MAP_UPDATED)
         _LOGGER.info(
-            f"Salvato vertice {vertex_id} in {room} (X:{x}, Y:{y}) con {len(valid_distances)} proxy attivi."
+            "Salvato vertice %s in %s (X:%s, Y:%s) con %d proxy attivi",
+            vertex_id,
+            room,
+            x,
+            y,
+            len(valid_distances),
         )
 
     hass.services.async_register(
-        DOMAIN, "save_vertex", handle_save_vertex, schema=SERVICE_SAVE_VERTEX_SCHEMA
+        DOMAIN, SERVICE_SAVE_VERTEX, handle_save_vertex, schema=SERVICE_SAVE_VERTEX_SCHEMA
     )
 
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Imposta una config entry inoltrando il setup alla piattaforma sensor."""
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Scarica una config entry, rimuovendo la piattaforma sensor."""
-    return await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

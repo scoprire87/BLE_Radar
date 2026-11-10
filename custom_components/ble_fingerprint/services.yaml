@@ -1,0 +1,33 @@
+save_vertex:
+  fields:
+    room:
+      required: true
+      example: "Cucina"
+      selector:
+        text:
+    vertex_id:
+      required: true
+      example: "cucina_1"
+      selector:
+        text:
+    distances:
+      required: true
+      example: '{"sensor.samsung_ale_distance_to_cucina": 1.2, "sensor.samsung_ale_distance_to_salotto": 4.8}'
+      selector:
+        object:
+    x:
+      example: 3.5
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.01
+          mode: box
+    y:
+      example: 1.2
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.01
+          mode: box

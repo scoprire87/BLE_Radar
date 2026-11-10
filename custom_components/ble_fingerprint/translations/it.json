@@ -1,0 +1,41 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "BLE Fingerprint Positioning",
+                "description": "Crea il sensore di posizione basato sulle distanze BLE."
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "L'integrazione è già configurata."
+        }
+    },
+    "services": {
+        "save_vertex": {
+            "name": "Salva vertice",
+            "description": "Salva un punto di riferimento (fingerprint) nella mappa.",
+            "fields": {
+                "room": {
+                    "name": "Stanza",
+                    "description": "Nome della stanza."
+                },
+                "vertex_id": {
+                    "name": "ID vertice",
+                    "description": "Identificativo univoco del punto nella stanza (se esiste viene sovrascritto)."
+                },
+                "distances": {
+                    "name": "Distanze",
+                    "description": "Mappa sensore di distanza → metri misurati in questo punto."
+                },
+                "x": {
+                    "name": "X",
+                    "description": "Coordinata X del punto (opzionale)."
+                },
+                "y": {
+                    "name": "Y",
+                    "description": "Coordinata Y del punto (opzionale)."
+                }
+            }
+        }
+    }
+}
