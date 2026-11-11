@@ -1,4 +1,9 @@
+<img src="custom_components/ble_fingerprint/brand/icon.png" alt="BLE Fingerprint Positioning" width="96" align="right">
+
 # BLE Fingerprint Positioning
+
+[![Validate](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml)
+[![Tests](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml)
 
 Integrazione custom per Home Assistant che stima la **stanza**, il **piano** e le
 **coordinate (x, y)** di un dispositivo a partire dalle distanze BLE misurate dai proxy
@@ -12,6 +17,8 @@ Combina due metodi:
   sole** dai vertici registrati con coordinate, senza disegnare una planimetria.
 
 Non richiede librerie esterne (niente numpy/scipy).
+
+![Come funziona: i proxy BLE misurano il segnale, Bermuda lo converte in distanze, BLE Fingerprint Positioning combina fingerprint e trilaterazione e pubblica stanza, piano e coordinate](img/come-funziona.svg)
 
 ## Installazione
 
@@ -146,6 +153,6 @@ di Hogster (licenza MIT, vedi [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 ## Sviluppo
 
 ```bash
-pip install pytest-homeassistant-custom-component
+pip install -r requirements_test.txt
 pytest
 ```
