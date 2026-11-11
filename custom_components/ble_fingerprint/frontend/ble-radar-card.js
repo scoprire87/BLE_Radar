@@ -1,16 +1,18 @@
-// Card per le dashboard: planimetria con la posizione in tempo reale.
+// Dashboard card: floor plan with live positions.
 //
 // type: custom:ble-radar-card
-// floor: Piano terra        # opzionale: nome o id del piano (predefinito il primo)
-// title: Casa               # opzionale
-// show_proxies: false       # opzionale
-// show_rooms: true          # opzionale
+// floor: Ground floor       # optional: floor name or id (default: the first one)
+// title: Home               # optional
+// show_proxies: false       # optional
+// show_rooms: true          # optional
 //
-// Il resto del codice viene caricato solo quando serve: così l'elemento è
-// registrato subito e Home Assistant non mostra "Configuration error" se la
-// dashboard si apre prima che i moduli siano scaricati.
+// The rest of the code is loaded lazily: the element is registered right away,
+// so Home Assistant does not show "Configuration error" when the dashboard
+// opens before the modules have been downloaded.
 let common = null;
-const commonReady = import("./ble-radar-common.js").then((module) => { common = module; });
+let i18n = null;
+const commonReady = Promise.all([import("./ble-radar-common.js"), import("./ble-radar-i18n.js")])
+  .then(([module, translations]) => { common = module; i18n = translations; });
 
 const CONFIG_REFRESH_MS = 5 * 60 * 1000;
 
@@ -66,14 +68,15 @@ class BleRadarCard extends HTMLElement {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     if (!common) return;
     const { BASE_STYLE, escapeHtml, floorSize } = common;
+    const t = i18n.translator(this._hass);
     const title = this._cardConfig.title;
     let body;
     if (this._error) {
-      body = `<div class="empty">BLE Radar non disponibile: ${escapeHtml(this._error)}</div>`;
+      body = `<div class="empty">${t("card.unavailable", { error: escapeHtml(this._error) })}</div>`;
     } else if (!this._config) {
-      body = `<div class="empty">Caricamento…</div>`;
+      body = `<div class="empty">${t("loading")}</div>`;
     } else if (!this._floorId) {
-      body = `<div class="empty">Crea la planimetria dalla pagina <b>BLE Radar</b> nella barra laterale.</div>`;
+      body = `<div class="empty">${t("card.no_floor")}</div>`;
     } else {
       const { width, height } = floorSize(this._config.floors[this._floorId]);
       const base = this._image
@@ -88,7 +91,7 @@ class BleRadarCard extends HTMLElement {
         ${title ? `<h1 class="card-header">${escapeHtml(title)}</h1>` : ""}
         <div class="card-content">${body}</div>
       </ha-card>`;
-    // ridisegna quando la card cambia dimensione (simboli sempre leggibili)
+    // redraw when the card is resized (markers stay readable)
     this._resizeObserver?.disconnect();
     const map = this.shadowRoot.querySelector(".map");
     if (map && window.ResizeObserver) {
@@ -138,10 +141,9 @@ const CARD_STYLE = `
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 `;
 
-// Il frontend di Home Assistant, all'avvio, può sostituire il registro dei
-// componenti dopo che questo modulo è già stato eseguito: in quel caso la card
-// risulterebbe "inesistente". Per qualche secondo ricontrolla e, se serve, la
-// registra di nuovo nel registro attuale.
+// While starting, the Home Assistant frontend can replace the custom element
+// registry after this module has run: the card would then be reported as
+// missing. For a few seconds, check again and re-register it if needed.
 function defineCard() {
   if (window.customElements.get("ble-radar-card")) return true;
   try {
@@ -165,7 +167,7 @@ if (!window.customCards.some((card) => card.type === "ble-radar-card")) {
   window.customCards.push({
     type: "ble-radar-card",
     name: "BLE Radar",
-    description: "Planimetria con la posizione in tempo reale dei dispositivi tracciati.",
+    description: "Floor plan with the live position of the tracked devices.",
     preview: false,
   });
 }

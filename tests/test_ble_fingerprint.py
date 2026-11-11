@@ -16,12 +16,12 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.ble_fingerprint.const import DOMAIN, LEGACY_PROXY_SENSORS
+from custom_components.ble_fingerprint.const import DOMAIN
 
-CUC = "sensor.samsung_ale_distance_to_cucina"
-SAL = "sensor.samsung_ale_distance_to_salotto"
-STU = "sensor.samsung_ale_distance_to_studio"
-ENTITY = "sensor.posizione_alessandro"
+CUC = "sensor.phone_distance_to_cucina"
+SAL = "sensor.phone_distance_to_salotto"
+STU = "sensor.phone_distance_to_studio"
+ENTITY = "sensor.phone_position"
 
 # PNG 1x1 trasparente
 PNG = "data:image/png;base64," + base64.b64encode(bytes.fromhex(
@@ -50,8 +50,11 @@ async def _call(hass, service, data=None, response=False):
 
 
 async def _setup_legacy(hass):
-    """Config entry versione 1 (senza dati), come nelle prime installazioni."""
-    entry = MockConfigEntry(domain=DOMAIN, data={}, version=1, title="BLE Radar Fingerprint")
+    """Config entry con un telefono tracciato tramite tre sensori di distanza."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=3, title="BLE Radar", unique_id=DOMAIN,
+        options={"trackers": [{"id": "t1", "name": "Phone position", "sensors": [CUC, SAL, STU]}]},
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -66,16 +69,15 @@ async def _ws(client, type_, **data):
 
 
 async def test_migration_from_version_1(hass):
-    entry = await _setup_legacy(hass)
+    """La versione 1 non salvava nulla: il dispositivo si sceglie nella pagina."""
+    entry = MockConfigEntry(domain=DOMAIN, data={}, version=1, title="BLE Radar")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
     assert entry.version == 3
     assert entry.data == {}
-    [tracker] = entry.options["trackers"]
-    assert tracker["sensors"] == LEGACY_PROXY_SENSORS
-    assert tracker["name"] == "Posizione Alessandro"
-    # l'entità esistente (storico, automazioni) viene mantenuta
-    assert tracker["unique_id"] == f"{entry.entry_id}_position"
-    assert er.async_get(hass).async_get(ENTITY).unique_id == f"{entry.entry_id}_position"
-    assert hass.states.get(ENTITY).state == "Sconosciuta"
+    assert entry.options["trackers"] == []
+    assert hass.data[DOMAIN]["entities"] == {}
 
 
 async def test_migration_from_version_2(hass):
@@ -92,7 +94,10 @@ async def test_migration_from_version_2(hass):
     [tracker] = entry.options["trackers"]
     # le opzioni avevano la precedenza sui dati
     assert tracker["sensors"] == [CUC] and tracker["name"] == "Posizione Tel"
-    assert hass.states.get("sensor.posizione_tel") is not None
+    # l'entità esistente (storico, automazioni) viene mantenuta
+    assert tracker["unique_id"] == f"{entry.entry_id}_position"
+    assert er.async_get(hass).async_get("sensor.posizione_tel").unique_id == f"{entry.entry_id}_position"
+    assert hass.states.get("sensor.posizione_tel").state == "unknown"
 
 
 async def test_position_room_change_and_unknown(hass, freezer):
@@ -110,7 +115,7 @@ async def test_position_room_change_and_unknown(hass, freezer):
     assert STU not in rooms["Salotto"]["s1"]["distances"]  # >= 10 m scartata
 
     state = hass.states.get(ENTITY)
-    assert state.state == "Sconosciuta"
+    assert state.state == "unknown"
     assert state.attributes["x"] < 2 and state.attributes["proxies"] == 2
     await _wait(hass, freezer, 6)
     assert hass.states.get(ENTITY).state == "Cucina"
@@ -137,7 +142,7 @@ async def test_position_room_change_and_unknown(hass, freezer):
     assert hass.states.get(ENTITY).state == "Salotto"
     await _wait(hass, freezer, 31)
     state = hass.states.get(ENTITY)
-    assert state.state == "Sconosciuta" and state.attributes["x"] is None
+    assert state.state == "unknown" and state.attributes["x"] is None
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
@@ -263,7 +268,9 @@ async def test_websocket_map_editing(hass, hass_ws_client, freezer, tmp_path):
     # punti guidati: centro e 4 angoli rientrati di 0,5 m (50 px)
     resp = await _ws(client, "guided_points", room="Cucina")
     points = resp["result"]["points"]
-    assert [p["label"] for p in points] == ["centro", "angolo 1", "angolo 2", "angolo 3", "angolo 4"]
+    assert [(p["kind"], p["index"]) for p in points] == [
+        ("center", 0), ("corner", 1), ("corner", 2), ("corner", 3), ("corner", 4)
+    ]
     assert points[0]["x"] == pytest.approx(200) and points[0]["y"] == pytest.approx(300)
     corner = points[1]
     # 50 px (0,5 m) dall'angolo (0, 0) verso il centro della stanza

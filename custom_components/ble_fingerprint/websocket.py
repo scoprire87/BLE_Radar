@@ -179,7 +179,7 @@ async def ws_delete_floor(
     """Elimina un piano con stanze, punti registrati e proxy manuali."""
     map_store = get_map_store(hass)
     if msg["floor_id"] not in map_store.floors:
-        connection.send_error(msg["id"], "not_found", "Piano non trovato")
+        connection.send_error(msg["id"], "not_found", "Floor not found")
         return
     await map_store.async_delete_floor(msg["floor_id"])
     await map_store.async_save()
@@ -204,13 +204,13 @@ async def ws_save_zone(
     map_store = get_map_store(hass)
     name, old_name = msg["name"], msg.get("old_name")
     if msg["floor_id"] not in map_store.floors:
-        connection.send_error(msg["id"], "not_found", "Piano non trovato")
+        connection.send_error(msg["id"], "not_found", "Floor not found")
         return
     try:
         if old_name and old_name != name:
             map_store.rename_room(old_name, name)
         elif not old_name and name in map_store.zones:
-            raise ValueError(f"Esiste già una stanza chiamata {name}")
+            raise ValueError(f"A room called {name} already exists")
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_name", str(err))
         return
@@ -234,7 +234,7 @@ async def ws_delete_zone(
     """Elimina una stanza (poligono e punti registrati)."""
     map_store = get_map_store(hass)
     if not map_store.delete_room(msg["name"]):
-        connection.send_error(msg["id"], "not_found", "Stanza non trovata")
+        connection.send_error(msg["id"], "not_found", "Room not found")
         return
     await map_store.async_save()
     connection.send_result(msg["id"])
@@ -268,7 +268,7 @@ async def ws_set_proxy(
             override["factor"] = factor
         map_store.proxies[proxy] = override
     else:
-        connection.send_error(msg["id"], "invalid_format", "Indica x e y oppure reset")
+        connection.send_error(msg["id"], "invalid_format", "Set x and y, or reset")
         return
     await map_store.async_save()
     connection.send_result(msg["id"])
@@ -332,7 +332,7 @@ def ws_save_trackers(
     """Salva l'elenco dei dispositivi tracciati (ricarica l'integrazione)."""
     entries = _entries(hass)
     if not entries:
-        connection.send_error(msg["id"], "not_found", "Integrazione non configurata")
+        connection.send_error(msg["id"], "not_found", "The integration is not set up")
         return
 
     existing: dict[str, tuple[Any, dict[str, Any]]] = {
@@ -355,7 +355,7 @@ def ws_save_trackers(
             tracker[TRACKER_UNIQUE_ID] = old[TRACKER_UNIQUE_ID]
         if not tracker[CONF_DEVICE] and not tracker[CONF_SENSORS]:
             connection.send_error(
-                msg["id"], "invalid_format", f"{item['name']}: scegli un dispositivo"
+                msg["id"], "invalid_format", f"{item['name']}: choose a device"
             )
             return
         new_by_entry[entry.entry_id].append(tracker)
@@ -380,7 +380,7 @@ def ws_guided_points(
     map_store = get_map_store(hass)
     zone = map_store.zones.get(msg["room"])
     if zone is None:
-        connection.send_error(msg["id"], "not_found", "Stanza non trovata")
+        connection.send_error(msg["id"], "not_found", "Room not found")
         return
 
     polygon = [(float(p[0]), float(p[1])) for p in zone["polygon"]]
@@ -393,12 +393,13 @@ def ws_guided_points(
 
     recorded = map_store.rooms.get(msg["room"], {})
     points = []
-    for index, (label, (x, y)) in enumerate(guided_points(polygon, inset)):
-        vertex_id = f"p{index}"
+    for number, (kind, index, (x, y)) in enumerate(guided_points(polygon, inset)):
+        vertex_id = f"p{number}"
         points.append(
             {
                 "vertex_id": vertex_id,
-                "label": label,
+                "kind": kind,
+                "index": index,
                 "x": round(x, 1),
                 "y": round(y, 1),
                 "recorded": vertex_id in recorded,

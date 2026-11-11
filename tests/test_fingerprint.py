@@ -14,7 +14,7 @@ def _vertex(distances, x=None, y=None):
 
 
 def test_proxy_key():
-    assert proxy_key("sensor.samsung_ale_distance_to_cucina") == "cucina"
+    assert proxy_key("sensor.phone_distance_to_cucina") == "cucina"
     assert proxy_key("sensor.altro") == "sensor.altro"
     assert normalize_distances({P + "a": 2.0, "sensor.x_distance_to_a": 1.0}) == {"a": 1.0}
 

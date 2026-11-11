@@ -67,7 +67,7 @@ class ProxyEstimate:
     factor: float
     rms: float | None
     samples: int
-    source: str  # "stimata" | "manuale"
+    source: str  # "estimated" | "manual"
 
     def as_dict(self) -> dict:
         return {
@@ -231,7 +231,7 @@ def fit_proxy(samples: Sequence[tuple[float, float, float]]) -> ProxyEstimate | 
         return None
 
     return ProxyEstimate(
-        x=qx, y=qy, factor=k, rms=rms, samples=len(samples), source="stimata"
+        x=qx, y=qy, factor=k, rms=rms, samples=len(samples), source="estimated"
     )
 
 
@@ -270,7 +270,7 @@ def estimate_proxies(
             factor=min(max(float(factor), FACTOR_MIN), FACTOR_MAX),
             rms=None,
             samples=len(samples.get(proxy, [])),
-            source="manuale",
+            source="manual",
         )
 
     return proxies
@@ -377,7 +377,7 @@ def fuse(
     """Media pesata (per qualità) delle due stime: (punto, qualità, metodo)."""
     estimates = [
         (point, quality, name)
-        for item, name in ((fingerprint, "fingerprint"), (trilateration, "trilaterazione"))
+        for item, name in ((fingerprint, "fingerprint"), (trilateration, "trilateration"))
         if item is not None
         for point, quality in [item]
     ]
@@ -392,7 +392,7 @@ def fuse(
     x = sum(p[0] * q for p, q, _ in estimates) / total
     y = sum(p[1] * q for p, q, _ in estimates) / total
     quality = max(q for _, q, _ in estimates)
-    return (x, y), quality, "combinato"
+    return (x, y), quality, "combined"
 
 
 # ---------------------------------------------------------------------------
@@ -547,20 +547,22 @@ def locate_in_zones(
     return best
 
 
-def guided_points(polygon: Sequence[Point], inset: float) -> list[tuple[str, Point]]:
+def guided_points(
+    polygon: Sequence[Point], inset: float
+) -> list[tuple[str, int, Point]]:
     """Punti della calibrazione guidata: centro e angoli rientrati di `inset`.
 
     Gli angoli vengono spostati verso il centro della stanza, così il punto da
     registrare non è dentro il muro.
     """
     cx, cy = polygon_centroid(polygon)
-    points: list[tuple[str, Point]] = [("centro", (cx, cy))]
+    points: list[tuple[str, int, Point]] = [("center", 0, (cx, cy))]
     for index, (x, y) in enumerate(polygon, start=1):
         dist = math.hypot(cx - x, cy - y)
         if dist <= 1e-9:
             continue
         step = min(inset, dist * 0.5)
         points.append(
-            (f"angolo {index}", (x + (cx - x) * step / dist, y + (cy - y) * step / dist))
+            ("corner", index, (x + (cx - x) * step / dist, y + (cy - y) * step / dist))
         )
     return points

@@ -1,4 +1,5 @@
-// Codice condiviso tra la pagina laterale e la card di BLE Radar.
+// Code shared by the BLE Radar sidebar page and dashboard card.
+import { translator } from "./ble-radar-i18n.js";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const BLANK_SIZE = { width: 1000, height: 700 };
@@ -53,7 +54,7 @@ export function forgetImage(floorId) {
   imageCache.delete(floorId);
 }
 
-// Dimensioni della planimetria (o di un foglio bianco se manca l'immagine)
+// Floor plan size (or a blank sheet when there is no image)
 export function floorSize(floor) {
   if (floor && floor.width && floor.height) {
     return { width: floor.width, height: floor.height };
@@ -61,7 +62,7 @@ export function floorSize(floor) {
   return { ...BLANK_SIZE };
 }
 
-// Raggio dei simboli proporzionato alla mappa
+// Marker radius proportional to the map
 export function markerSize(size) {
   return Math.max(6, Math.round(Math.min(size.width, size.height) / 70));
 }
@@ -82,7 +83,7 @@ export function centroid(points) {
   return [cx / (6 * area), cy / (6 * area)];
 }
 
-// Stanze del piano, con colore stabile per nome
+// Rooms of a floor, with a stable colour per name
 export function floorZones(config, floorId) {
   const names = Object.keys(config.zones || {}).sort();
   return names
@@ -90,12 +91,12 @@ export function floorZones(config, floorId) {
     .filter((zone) => zone.floor === floorId);
 }
 
-// Proxy del piano: posizione manuale se presente, altrimenti stimata
+// Proxies of a floor: manual position if set, otherwise the estimate
 export function floorProxies(config, floorId) {
   const result = {};
   const estimated = (config.estimated_proxies || {})[floorId] || {};
   for (const [name, data] of Object.entries(estimated)) {
-    result[name] = { name, x: data.x, y: data.y, manual: data.source === "manuale", estimate: data };
+    result[name] = { name, x: data.x, y: data.y, manual: data.source === "manual", estimate: data };
   }
   for (const [name, data] of Object.entries(config.proxies || {})) {
     if ((data.floor || null) !== floorId) continue;
@@ -112,10 +113,11 @@ export function trackerStates(hass, config) {
     });
 }
 
-// Disegna stanze, proxy e persone in un <svg> già dimensionato sulla mappa
+// Draw rooms, proxies and people in an <svg> sized like the map
 export function drawMap(svg, { hass, config, floorId, size, layers = {} }) {
-  // simboli e testi di dimensione costante sullo schermo (~9 px), qualunque sia
-  // la risoluzione della planimetria o la larghezza della card
+  // markers and labels keep a constant on-screen size (~9 px), whatever the
+  // floor plan resolution or the card width
+  const t = translator(hass);
   const shown = svg.getBoundingClientRect().width;
   const r = shown > 0 ? (9 * size.width) / shown : markerSize(size);
   const show = { zones: true, vertices: false, proxies: true, trackers: true, ...layers };
@@ -133,7 +135,7 @@ export function drawMap(svg, { hass, config, floorId, size, layers = {} }) {
         "data-zone": zone.name,
       }, group);
       const [cx, cy] = centroid(zone.polygon);
-      // sopra il centro, per non coprire il punto di calibrazione centrale
+      // above the centre, so the central calibration point stays visible
       const label = svgEl("text", {
         x: cx, y: cy - r * 2.2,
         "text-anchor": "middle",
@@ -186,9 +188,9 @@ export function drawMap(svg, { hass, config, floorId, size, layers = {} }) {
         label.textContent = proxy.name;
       }
       const info = proxy.estimate
-        ? ` · stimato (fattore ${proxy.estimate.factor}, ${proxy.estimate.samples} punti)`
+        ? t("proxy.estimated", { factor: proxy.estimate.factor, samples: proxy.estimate.samples })
         : "";
-      svgEl("title", {}, g).textContent = `${proxy.name}${proxy.manual ? " · posizione manuale" : info}`;
+      svgEl("title", {}, g).textContent = `${proxy.name}${proxy.manual ? t("proxy.manual") : info}`;
     }
   }
 
@@ -209,7 +211,7 @@ export function drawMap(svg, { hass, config, floorId, size, layers = {} }) {
       }, g);
       label.textContent = tracker.name;
       svgEl("title", {}, g).textContent =
-        `${tracker.name}: ${tracker.state.state} (affidabilità ${attrs.confidence ?? "-"})`;
+        t("tracker.title", { name: tracker.name, state: tracker.state.state, confidence: attrs.confidence ?? "-" });
     }
   }
 }

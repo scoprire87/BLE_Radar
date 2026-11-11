@@ -17,7 +17,7 @@
                 "data": {
                     "show_panel": "Mostra la pagina nella barra laterale",
                     "confirmation_seconds": "Conferma cambio stanza",
-                    "unknown_timeout": "Ritorno a «Sconosciuta»",
+                    "unknown_timeout": "Ritorno a «sconosciuta»",
                     "smoothing": "Movimento fluido"
                 },
                 "data_description": {
@@ -76,7 +76,7 @@
                 },
                 "floor": {
                     "name": "Piano",
-                    "description": "Piano del punto (opzionale, es. «Terra», «Taverna»). Serve solo se hai più piani."
+                    "description": "Piano del punto (opzionale, es. «Piano terra», «Primo piano»). Serve solo se hai più piani."
                 }
             }
         },
@@ -94,7 +94,7 @@
                 },
                 "entity_id": {
                     "name": "Sensore di posizione",
-                    "description": "Sensore BLE Fingerprint da cui leggere le distanze (necessario solo se ne hai più di uno)."
+                    "description": "Sensore di posizione BLE Radar da cui leggere le distanze (necessario solo se ne hai più di uno)."
                 },
                 "duration": {
                     "name": "Durata",
@@ -110,7 +110,7 @@
                 },
                 "floor": {
                     "name": "Piano",
-                    "description": "Piano del punto (opzionale, es. «Terra», «Taverna»). Serve solo se hai più piani."
+                    "description": "Piano del punto (opzionale, es. «Piano terra», «Primo piano»). Serve solo se hai più piani."
                 }
             }
         },
@@ -160,7 +160,7 @@
                 },
                 "floor": {
                     "name": "Piano",
-                    "description": "Piano del punto (opzionale, es. «Terra», «Taverna»). Serve solo se hai più piani."
+                    "description": "Piano del punto (opzionale, es. «Piano terra», «Primo piano»). Serve solo se hai più piani."
                 },
                 "factor": {
                     "name": "Fattore di correzione",

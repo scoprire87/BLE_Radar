@@ -140,7 +140,7 @@ async def async_setup_entry(
         )
         if not proxy_sensors:
             _LOGGER.warning(
-                "%s: nessun sensore di distanza trovato, la posizione resterà sconosciuta",
+                "%s: no distance sensor found, the position will stay unknown",
                 name,
             )
 
@@ -581,7 +581,7 @@ class BLEFingerprintSensor(SensorEntity):
         self._cancel_confirmation_timer = None
         if self._pending_room is None:
             return
-        _LOGGER.debug("BLE Radar: cambio stanza confermato → %s", self._pending_room)
+        _LOGGER.debug("BLE Radar: room change confirmed -> %s", self._pending_room)
         self._attr_native_value = self._pending_room
         self._pending_room = None
         self.async_write_ha_state()
@@ -592,7 +592,7 @@ class BLEFingerprintSensor(SensorEntity):
         self._cancel_unknown_timer = None
         if self._current_distances:
             return
-        _LOGGER.debug("BLE Radar: nessun proxy rilevato, posizione sconosciuta")
+        _LOGGER.debug("BLE Radar: no proxy in range, position unknown")
         self._cancel_confirmation()
         self._pending_room = None
         self._attr_native_value = UNKNOWN_ROOM
