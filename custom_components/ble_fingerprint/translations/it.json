@@ -9,8 +9,8 @@
                     "name": "Nome del sensore (opzionale)"
                 },
                 "data_description": {
-                    "device_id": "Vengono usati tutti i suoi sensori «distance to <proxy>».",
-                    "name": "Se lo lasci vuoto: «Posizione <dispositivo>»."
+                    "device_id": "Vengono usati tutti i suoi sensori «distance to …».",
+                    "name": "Se lo lasci vuoto: «Posizione» seguito dal nome del dispositivo."
                 },
                 "sections": {
                     "advanced": {
@@ -44,7 +44,7 @@
                     "smoothing": "Movimento fluido"
                 },
                 "data_description": {
-                    "device_id": "Vengono usati tutti i suoi sensori «distance to <proxy>».",
+                    "device_id": "Vengono usati tutti i suoi sensori «distance to …».",
                     "confirmation_seconds": "Secondi per cui la nuova stanza deve restare la migliore prima del cambio (0 = immediato).",
                     "unknown_timeout": "Secondi senza alcun proxy valido prima che la posizione diventi sconosciuta (0 = mai).",
                     "smoothing": "Filtro di Kalman sulle coordinate: meno salti, con un leggero ritardo nei movimenti."

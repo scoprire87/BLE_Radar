@@ -9,8 +9,8 @@
                     "name": "Sensor name (optional)"
                 },
                 "data_description": {
-                    "device_id": "All of its “distance to <proxy>” sensors are used.",
-                    "name": "If left empty: “Posizione <device>”."
+                    "device_id": "All of its “distance to …” sensors are used.",
+                    "name": "If left empty: “Posizione” followed by the device name."
                 },
                 "sections": {
                     "advanced": {
@@ -44,7 +44,7 @@
                     "smoothing": "Smooth movement"
                 },
                 "data_description": {
-                    "device_id": "All of its “distance to <proxy>” sensors are used.",
+                    "device_id": "All of its “distance to …” sensors are used.",
                     "confirmation_seconds": "Seconds the new room must stay the best match before switching (0 = immediate).",
                     "unknown_timeout": "Seconds without any valid proxy before the position becomes unknown (0 = never).",
                     "smoothing": "Kalman filter on the coordinates: fewer jumps, with a slight lag when moving."
