@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from collections.abc import Callable
 from typing import Any
 
 DISTANCE_TO_MARKER = "_distance_to_"
@@ -166,10 +167,12 @@ def room_floors(rooms: dict[str, dict[str, Any]]) -> dict[str, str | None]:
 
 
 def vertices_by_floor(
-    rooms: dict[str, dict[str, Any]], scale: float = 1.0
+    rooms: dict[str, dict[str, Any]],
+    scale: float | Callable[[str | None], float] = 1.0,
 ) -> dict[str | None, list[tuple[float, float, dict[str, float]]]]:
     """Vertici con coordinate, raggruppati per piano, in metri.
 
+    `scale` (unità della mappa per metro) può dipendere dal piano.
     Restituisce {piano: [(x_m, y_m, {proxy: distanza})]}.
     """
     result: dict[str | None, list[tuple[float, float, dict[str, float]]]] = {}
@@ -187,7 +190,9 @@ def vertices_by_floor(
                 }
             )
             if distances:
-                result.setdefault(vertex_floor(data), []).append(
-                    (x / scale, y / scale, distances)
+                floor = vertex_floor(data)
+                factor = scale(floor) if callable(scale) else scale
+                result.setdefault(floor, []).append(
+                    (x / factor, y / factor, distances)
                 )
     return result

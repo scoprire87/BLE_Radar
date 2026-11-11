@@ -1,4 +1,9 @@
+<img src="custom_components/ble_fingerprint/brand/icon.png" alt="BLE Fingerprint Positioning" width="96" align="right">
+
 # BLE Fingerprint Positioning
+
+[![Validate](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml)
+[![Tests](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml)
 
 Integrazione custom per Home Assistant che stima la **stanza**, il **piano** e le
 **coordinate (x, y)** di un dispositivo a partire dalle distanze BLE misurate dai proxy
@@ -13,67 +18,94 @@ Combina due metodi:
 
 Non richiede librerie esterne (niente numpy/scipy).
 
+![Come funziona: i proxy BLE misurano il segnale, Bermuda lo converte in distanze, BLE Fingerprint Positioning combina fingerprint e trilaterazione e pubblica stanza, piano e coordinate](img/come-funziona.svg)
+
 ## Installazione
 
 1. HACS → Integrazioni → Repository personalizzati → aggiungi questo repository.
 2. Installa **BLE Fingerprint Positioning** e riavvia Home Assistant.
 3. Impostazioni → Dispositivi e servizi → Aggiungi integrazione → *BLE Fingerprint Positioning*.
-4. Scegli il **dispositivo** da tracciare: vengono usati automaticamente tutti i suoi
-   sensori `..._distance_to_<proxy>` attivi e il nome diventa «Posizione <dispositivo>».
-   Se usi [Bermuda](https://github.com/agittins/bermuda) l'elenco mostra solo i
-   dispositivi che Bermuda traccia. Nella sezione *Avanzate* puoi aggiungere sensori
-   di distanza a mano (anche di altre integrazioni).
+   Non chiede nulla: compare la pagina **BLE Radar** nella barra laterale.
 
-Puoi aggiungere l'integrazione più volte per tracciare più dispositivi: la mappa è
-condivisa, perché i proxy vengono riconosciuti dalla parte finale dell'entity_id
-(`sensor.telefono_distance_to_cucina` → `cucina`).
+## La pagina BLE Radar
 
-Quando Bermuda crea un nuovo sensore di distanza per il dispositivo (ad esempio
-perché hai aggiunto uno Shelly), l'integrazione lo include da sola, senza ricaricarla.
+Tutto si configura dalla pagina nella barra laterale (solo per gli amministratori).
 
-## Creare la mappa
+### 1. Dispositivi
 
-Mettiti in un punto della stanza, resta fermo e chiama `ble_fingerprint.record_vertex`:
-le distanze vengono lette da sole (mediana su `duration` secondi).
+Scegli i dispositivi da tracciare: sono elencati quelli con sensori «distance to …»,
+per primi quelli di [Bermuda](https://github.com/agittins/bermuda). Per ognuno nasce un
+sensore di posizione. Quando Bermuda crea un nuovo sensore di distanza (ad esempio
+perché hai aggiunto uno Shelly) l'integrazione lo include da sola.
+
+### 2. Planimetria e stanze
+
+1. **Nuovo piano**: dai un nome (es. «Piano terra», «Taverna») e carica la planimetria
+   (PNG, JPEG o WEBP; le immagini grandi vengono ridotte automaticamente).
+2. **Imposta scala**: clicca due punti di cui conosci la distanza (ad esempio le due
+   estremità di una parete) e scrivi i metri.
+3. **Disegna stanza**: clicca sugli angoli della stanza in ordine, dai un nome e salva.
+   Con **Modifica forma** trascini gli angoli, aggiungi un angolo cliccando vicino a un
+   lato e lo togli con un doppio clic.
+4. **Sposta proxy**: la posizione degli Shelly viene stimata dai punti registrati
+   (quadrati tratteggiati); se una è sbagliata trascinala nel punto giusto (diventa
+   un quadrato pieno). Cliccandola la riporti alla stima.
+
+### 3. Calibrazione guidata
+
+Scegli dispositivo e stanza: la pagina ti indica uno alla volta i punti da registrare
+(il centro e gli angoli, a mezzo metro dai muri). Vai nel punto evidenziato con il
+telefono in mano, come lo porti di solito, resta fermo e premi **Registra**: le
+distanze vengono campionate per la durata scelta (con gli Shelly almeno 15 secondi) e
+salvate con le coordinate e il piano giusti. Poi passa da sola al punto successivo.
+Cliccando sulla mappa aggiungi punti liberi (ad esempio dove ti siedi di solito).
+
+![Calibrazione guidata: il punto da raggiungere è evidenziato in arancione, quelli già registrati sono verdi](img/pannello-calibrazione.png)
+
+### 4. Mappa
+
+Mostra in tempo reale stanze, proxy e posizione dei dispositivi tracciati.
+
+![Mappa in tempo reale con le stanze disegnate, i proxy stimati e la posizione](img/pannello-mappa.png)
+
+## Card per la dashboard
+
+La card **BLE Radar** mostra la planimetria con la posizione in tempo reale:
+
+![Card BLE Radar in una dashboard](img/card.png)
 
 ```yaml
-action: ble_fingerprint.record_vertex
-data:
-  room: Cucina
-  vertex_id: cucina_1
-  x: 3.5          # coordinate: opzionali ma necessarie per la trilaterazione
-  y: 1.2
-  floor: Terra    # opzionale, solo se hai più piani
-  duration: 15    # secondi di campionamento (0 = lettura istantanea)
-  # entity_id: sensor.posizione_alessandro   # solo se hai più sensori di posizione
+type: custom:ble-radar-card
+title: Dove siamo          # opzionale
+floor: Piano terra         # opzionale: nome del piano (predefinito il primo)
+show_proxies: false        # opzionale
+show_rooms: true           # opzionale
 ```
 
-Consigli:
-- registra più vertici per stanza (angoli, centro, punti dove sosti di solito),
-  tenendo il telefono come lo porti di solito;
-- con proxy Shelly usa `duration: 15` o più, per filtrare il rumore;
-- per la **trilaterazione** dai le coordinate ai vertici (un unico sistema di
-  riferimento per piano, ad esempio in metri con l'origine in un angolo della casa):
-  ogni proxy deve essere visto da almeno 4 vertici con coordinate, non tutti in fila.
+## Servizi
+
+Utili per automazioni o per chi preferisce lo YAML; la pagina laterale li usa al
+posto tuo.
 
 | Servizio | Cosa fa |
 |---|---|
-| `record_vertex` | Registra un vertice leggendo le distanze attuali |
-| `save_vertex` | Salva un vertice passando le distanze a mano (`distances: {sensore: metri}`) |
-| `delete_vertex` | Elimina un vertice (`room`, `vertex_id`) |
-| `delete_room` | Elimina una stanza con tutti i suoi vertici |
+| `record_vertex` | Registra un punto leggendo le distanze attuali (mediana su `duration` secondi) |
+| `save_vertex` | Salva un punto passando le distanze a mano (`distances: {sensore: metri}`) |
+| `delete_vertex` | Elimina un punto (`room`, `vertex_id`) |
+| `delete_room` | Elimina una stanza con tutti i suoi punti |
 | `set_proxy` | Imposta a mano posizione (ed eventualmente correzione) di un proxy; senza `x`/`y` rimuove l'impostazione |
 | `get_map` | Restituisce la mappa, i proxy impostati a mano e quelli **stimati** (posizione, fattore di correzione, residuo) |
 
-Salvare un vertice con lo stesso `vertex_id` nella stessa stanza lo sovrascrive.
-La mappa è salvata in `.storage/ble_fingerprint_map`.
+La mappa è salvata in `.storage/ble_fingerprint_map`, le planimetrie nella cartella
+`ble_fingerprint` della configurazione di Home Assistant.
 
 ## Il sensore
 
 - **Stato**: la stanza stimata, oppure `Sconosciuta`.
 - **Attributi**:
-  - `x`, `y`: coordinate stimate (nelle unità della mappa);
-  - `floor`: piano;
+  - `x`, `y`: coordinate stimate, in pixel della planimetria;
+  - `floor`, `floor_name`: id e nome del piano;
+  - `fingerprint_room`: la stanza indicata dal solo fingerprint;
   - `confidence`: affidabilità della stima, da 0 a 1;
   - `method`: `fingerprint`, `trilaterazione` o `combinato`;
   - `score`: scarto in metri dal vertice più simile (più è basso, meglio è);
@@ -81,6 +113,13 @@ La mappa è salvata in `.storage/ble_fingerprint_map`.
     proxy usati dalla trilaterazione e residuo in metri.
 
 Il sensore compare sotto un proprio dispositivo, collegato a quello tracciato.
+
+### Aggiornare dalle versioni 1.x
+
+La configurazione esistente viene migrata da sola: il dispositivo tracciato, il nome e
+l'entità restano gli stessi e la mappa salvata resta valida. I punti registrati senza
+piano continuano a funzionare con il solo fingerprint; per usare le stanze disegnate
+crea il piano nella pagina laterale e registra i punti con la calibrazione guidata.
 
 ## Come funziona
 
@@ -102,7 +141,10 @@ Il sensore compare sotto un proprio dispositivo, collegato a quello tracciato.
    numero di proxy).
 5. **Movimento fluido.** Un filtro di Kalman a velocità costante riduce i salti; si
    azzera dopo un'assenza o un cambio di piano.
-6. La stanza cambia solo se la nuova resta la migliore per il tempo di conferma; se
+6. **Stanze disegnate.** Se il piano ha stanze disegnate, la stanza è quella che
+   contiene la posizione calcolata; se la posizione cade fuori da tutte (ad esempio
+   dentro un muro) viene agganciata alla stanza più vicina, come in BPS.
+7. La stanza cambia solo se la nuova resta la migliore per il tempo di conferma; se
    per un certo tempo non c'è alcun proxy valido, la posizione torna `Sconosciuta`.
 
 ## Opzioni
@@ -111,6 +153,7 @@ Da *Configura* sull'integrazione:
 
 | Opzione | Predefinito | Descrizione |
 |---|---|---|
+| Mostra la pagina nella barra laterale | attivo | La pagina BLE Radar |
 | Conferma cambio stanza | 5 s | Tempo per cui la nuova stanza deve restare la migliore (0 = immediato) |
 | Ritorno a «Sconosciuta» | 60 s | Tempo senza alcun proxy valido (0 = mai) |
 | Movimento fluido | attivo | Filtro di Kalman sulle coordinate |
@@ -119,9 +162,8 @@ Nella sezione **Avanzate**:
 
 | Opzione | Predefinito | Descrizione |
 |---|---|---|
-| Sensori di distanza aggiuntivi | — | In aggiunta o al posto di quelli del dispositivo |
 | Trilaterazione | attiva | Usa i proxy stimati dalla mappa per affinare le coordinate |
-| Unità della mappa per metro | 1 | 1 se le coordinate sono in metri, 100 se in centimetri, ecc. |
+| Scala predefinita | 1 | Unità per metro dei punti senza piano o dei piani senza scala (la scala dei piani si imposta nella pagina laterale) |
 | Distanza massima | 10 m | Distanze pari o superiori vengono ignorate |
 | Vertici più vicini (k) | 3 | Vertici usati per stanza e coordinate |
 | Proxy in comune minimi | 2 | Proxy che misura e vertice devono condividere |
@@ -146,6 +188,6 @@ di Hogster (licenza MIT, vedi [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 ## Sviluppo
 
 ```bash
-pip install pytest-homeassistant-custom-component
+pip install -r requirements_test.txt
 pytest
 ```

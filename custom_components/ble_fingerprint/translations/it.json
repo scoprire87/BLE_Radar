@@ -2,49 +2,26 @@
     "config": {
         "step": {
             "user": {
-                "title": "BLE Fingerprint Positioning",
-                "description": "Scegli il dispositivo da tracciare: i suoi sensori di distanza (es. Bermuda) vengono trovati da soli.",
-                "data": {
-                    "device_id": "Dispositivo tracciato",
-                    "name": "Nome del sensore (opzionale)"
-                },
-                "data_description": {
-                    "device_id": "Vengono usati tutti i suoi sensori «distance to <proxy>».",
-                    "name": "Se lo lasci vuoto: «Posizione <dispositivo>»."
-                },
-                "sections": {
-                    "advanced": {
-                        "name": "Avanzate",
-                        "data": {
-                            "sensors": "Sensori di distanza aggiuntivi"
-                        },
-                        "data_description": {
-                            "sensors": "Sensori di distanza (in metri) da usare in aggiunta, o al posto, di quelli del dispositivo."
-                        }
-                    }
-                }
+                "title": "BLE Radar",
+                "description": "Dopo l'installazione apri la pagina «BLE Radar» nella barra laterale: lì carichi la planimetria, disegni le stanze, scegli i dispositivi da tracciare e calibri i punti."
             }
         },
-        "error": {
-            "no_sensors": "Nessun sensore di distanza trovato: scegli un dispositivo con sensori «distance to» attivi oppure seleziona i sensori a mano.",
-            "name_required": "Inserisci un nome."
-        },
         "abort": {
-            "already_configured": "Questo dispositivo è già tracciato."
+            "single_instance_allowed": "BLE Radar è già installato: gestisci tutto dalla pagina nella barra laterale."
         }
     },
     "options": {
         "step": {
             "init": {
-                "title": "Opzioni BLE Fingerprint",
+                "title": "Opzioni BLE Radar",
                 "data": {
-                    "device_id": "Dispositivo tracciato",
+                    "show_panel": "Mostra la pagina nella barra laterale",
                     "confirmation_seconds": "Conferma cambio stanza",
                     "unknown_timeout": "Ritorno a «Sconosciuta»",
                     "smoothing": "Movimento fluido"
                 },
                 "data_description": {
-                    "device_id": "Vengono usati tutti i suoi sensori «distance to <proxy>».",
+                    "show_panel": "La pagina «BLE Radar» per la planimetria, le stanze, la calibrazione e i dispositivi.",
                     "confirmation_seconds": "Secondi per cui la nuova stanza deve restare la migliore prima del cambio (0 = immediato).",
                     "unknown_timeout": "Secondi senza alcun proxy valido prima che la posizione diventi sconosciuta (0 = mai).",
                     "smoothing": "Filtro di Kalman sulle coordinate: meno salti, con un leggero ritardo nei movimenti."
@@ -53,27 +30,23 @@
                     "advanced": {
                         "name": "Avanzate",
                         "data": {
-                            "sensors": "Sensori di distanza aggiuntivi",
                             "trilateration": "Trilaterazione",
-                            "map_scale": "Unità della mappa per metro",
+                            "map_scale": "Scala predefinita (unità per metro)",
                             "max_distance": "Distanza massima",
                             "top_k": "Vertici più vicini (k)",
                             "min_common_proxies": "Proxy in comune minimi"
                         },
                         "data_description": {
-                            "sensors": "Sensori di distanza (in metri) da usare in aggiunta, o al posto, di quelli del dispositivo.",
                             "trilateration": "Stima la posizione dei proxy dai vertici con coordinate e la usa per affinare x/y insieme al fingerprint.",
-                            "map_scale": "1 se le coordinate dei vertici sono in metri, 100 se in centimetri, ecc.",
+                            "map_scale": "Usata solo per i punti senza piano o per i piani senza scala impostata nella pagina laterale.",
                             "max_distance": "Le distanze pari o superiori vengono ignorate; un proxy non visto è considerato a questa distanza.",
                             "top_k": "Numero di vertici più simili usati per scegliere la stanza e calcolare le coordinate.",
                             "min_common_proxies": "Proxy che misura attuale e vertice devono avere in comune perché il vertice sia considerato."
                         }
                     }
-                }
+                },
+                "description": "Mappa, stanze e dispositivi si gestiscono dalla pagina «BLE Radar» nella barra laterale."
             }
-        },
-        "error": {
-            "no_sensors": "Nessun sensore di distanza trovato: scegli un dispositivo con sensori «distance to» attivi oppure seleziona i sensori a mano."
         }
     },
     "services": {

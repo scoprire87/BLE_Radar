@@ -461,3 +461,106 @@ class PositionFilter:
         dt = min(max(timestamp - self._last, 1e-3), KF_MAX_DT_S)
         self._last = timestamp
         return (self._axes[0].update(point[0], dt), self._axes[1].update(point[1], dt))
+
+
+# ---------------------------------------------------------------------------
+# Stanze disegnate (poligoni)
+# ---------------------------------------------------------------------------
+
+
+def point_in_polygon(point: Point, polygon: Sequence[Point]) -> bool:
+    """True se il punto è dentro il poligono (ray casting)."""
+    x, y = point
+    inside = False
+    n = len(polygon)
+    for i in range(n):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % n]
+        if (y1 > y) != (y2 > y):
+            cross = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            if x < cross:
+                inside = not inside
+    return inside
+
+
+def nearest_point_on_polygon(point: Point, polygon: Sequence[Point]) -> tuple[Point, float]:
+    """Punto del perimetro più vicino e relativa distanza."""
+    px, py = point
+    best: Point = polygon[0]
+    best_dist = math.inf
+    n = len(polygon)
+    for i in range(n):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % n]
+        dx, dy = x2 - x1, y2 - y1
+        length2 = dx * dx + dy * dy
+        t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / length2))
+        cx, cy = x1 + t * dx, y1 + t * dy
+        dist = math.hypot(px - cx, py - cy)
+        if dist < best_dist:
+            best, best_dist = (cx, cy), dist
+    return best, best_dist
+
+
+def polygon_centroid(polygon: Sequence[Point]) -> Point:
+    """Baricentro dell'area del poligono (media dei vertici se degenere)."""
+    area = cx = cy = 0.0
+    n = len(polygon)
+    for i in range(n):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % n]
+        cross = x1 * y2 - x2 * y1
+        area += cross
+        cx += (x1 + x2) * cross
+        cy += (y1 + y2) * cross
+    if abs(area) < 1e-9:
+        return (sum(p[0] for p in polygon) / n, sum(p[1] for p in polygon) / n)
+    area *= 0.5
+    return (cx / (6 * area), cy / (6 * area))
+
+
+def locate_in_zones(
+    point: Point, zones: Sequence[tuple[str, Sequence[Point]]]
+) -> tuple[str, Point] | None:
+    """Stanza che contiene il punto; se nessuna, la più vicina (BPS).
+
+    Restituisce (stanza, punto), dove il punto è agganciato dentro la stanza
+    più vicina quando cade fuori da tutte (ad esempio dentro un muro).
+    """
+    candidates = [(name, poly) for name, poly in zones if len(poly) >= 3]
+    if not candidates:
+        return None
+    for name, polygon in candidates:
+        if point_in_polygon(point, polygon):
+            return name, point
+
+    best: tuple[str, Point] | None = None
+    best_dist = math.inf
+    for name, polygon in candidates:
+        snapped, dist = nearest_point_on_polygon(point, polygon)
+        if dist < best_dist:
+            # spinge il punto appena dentro il perimetro, verso il centro
+            cx, cy = polygon_centroid(polygon)
+            sx = snapped[0] + (cx - snapped[0]) * 0.02
+            sy = snapped[1] + (cy - snapped[1]) * 0.02
+            best, best_dist = (name, (sx, sy)), dist
+    return best
+
+
+def guided_points(polygon: Sequence[Point], inset: float) -> list[tuple[str, Point]]:
+    """Punti della calibrazione guidata: centro e angoli rientrati di `inset`.
+
+    Gli angoli vengono spostati verso il centro della stanza, così il punto da
+    registrare non è dentro il muro.
+    """
+    cx, cy = polygon_centroid(polygon)
+    points: list[tuple[str, Point]] = [("centro", (cx, cy))]
+    for index, (x, y) in enumerate(polygon, start=1):
+        dist = math.hypot(cx - x, cy - y)
+        if dist <= 1e-9:
+            continue
+        step = min(inset, dist * 0.5)
+        points.append(
+            (f"angolo {index}", (x + (cx - x) * step / dist, y + (cy - y) * step / dist))
+        )
+    return points

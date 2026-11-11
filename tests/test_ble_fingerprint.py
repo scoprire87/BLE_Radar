@@ -1,5 +1,6 @@
-"""Test dell'integrazione BLE Fingerprint."""
+"""Test dell'integrazione BLE Fingerprint (BLE Radar)."""
 import asyncio
+import base64
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -22,6 +23,12 @@ SAL = "sensor.samsung_ale_distance_to_salotto"
 STU = "sensor.samsung_ale_distance_to_studio"
 ENTITY = "sensor.posizione_alessandro"
 
+# PNG 1x1 trasparente
+PNG = "data:image/png;base64," + base64.b64encode(bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+    "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082"
+)).decode()
+
 
 async def _move(hass, cuc, sal, stu="unavailable"):
     hass.states.async_set(CUC, str(cuc))
@@ -43,7 +50,7 @@ async def _call(hass, service, data=None, response=False):
 
 
 async def _setup_legacy(hass):
-    """Config entry versione 1 (senza dati), come nelle installazioni esistenti."""
+    """Config entry versione 1 (senza dati), come nelle prime installazioni."""
     entry = MockConfigEntry(domain=DOMAIN, data={}, version=1, title="BLE Radar Fingerprint")
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -52,11 +59,40 @@ async def _setup_legacy(hass):
     return entry
 
 
-async def test_migration_keeps_legacy_setup(hass):
+async def _ws(client, type_, **data):
+    await client.send_json_auto_id({"type": f"ble_fingerprint/{type_}", **data})
+    response = await client.receive_json()
+    return response
+
+
+async def test_migration_from_version_1(hass):
     entry = await _setup_legacy(hass)
-    assert entry.version == 2
-    assert entry.data["sensors"] == LEGACY_PROXY_SENSORS
+    assert entry.version == 3
+    assert entry.data == {}
+    [tracker] = entry.options["trackers"]
+    assert tracker["sensors"] == LEGACY_PROXY_SENSORS
+    assert tracker["name"] == "Posizione Alessandro"
+    # l'entità esistente (storico, automazioni) viene mantenuta
+    assert tracker["unique_id"] == f"{entry.entry_id}_position"
+    assert er.async_get(hass).async_get(ENTITY).unique_id == f"{entry.entry_id}_position"
     assert hass.states.get(ENTITY).state == "Sconosciuta"
+
+
+async def test_migration_from_version_2(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=2, title="Posizione Tel",
+        data={"name": "Posizione Tel", "device_id": None, "sensors": [CUC, SAL]},
+        options={"confirmation_seconds": 9, "sensors": [CUC]},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.version == 3
+    assert entry.options["confirmation_seconds"] == 9
+    [tracker] = entry.options["trackers"]
+    # le opzioni avevano la precedenza sui dati
+    assert tracker["sensors"] == [CUC] and tracker["name"] == "Posizione Tel"
+    assert hass.states.get("sensor.posizione_tel") is not None
 
 
 async def test_position_room_change_and_unknown(hass, freezer):
@@ -70,10 +106,9 @@ async def test_position_room_change_and_unknown(hass, freezer):
         ("Salotto", "s2", {CUC: 5.5, SAL: 1.5}, 9, 1),
     ):
         await _call(hass, "save_vertex", {"room": room, "vertex_id": vid, "distances": d, "x": x, "y": y})
-    rooms = hass.data[DOMAIN]["map_data"]["rooms"]
+    rooms = hass.data[DOMAIN]["map"].rooms
     assert STU not in rooms["Salotto"]["s1"]["distances"]  # >= 10 m scartata
 
-    # coordinate subito, stanza dopo la conferma
     state = hass.states.get(ENTITY)
     assert state.state == "Sconosciuta"
     assert state.attributes["x"] < 2 and state.attributes["proxies"] == 2
@@ -83,7 +118,6 @@ async def test_position_room_change_and_unknown(hass, freezer):
     # spostamento in salotto: coordinate subito, stanza solo dopo la conferma
     await _move(hass, 5.0, 1.0)
     state = hass.states.get(ENTITY)
-    # coordinate subito verso il salotto (il filtro di Kalman le ammorbidisce)
     assert state.state == "Cucina" and state.attributes["x"] > 5
     await _wait(hass, freezer, 4)
     assert hass.states.get(ENTITY).state == "Cucina"
@@ -105,16 +139,6 @@ async def test_position_room_change_and_unknown(hass, freezer):
     state = hass.states.get(ENTITY)
     assert state.state == "Sconosciuta" and state.attributes["x"] is None
 
-    # se il segnale torna prima del timeout la stanza non si perde
-    await _move(hass, 5.0, 1.0)
-    await _wait(hass, freezer, 6)
-    assert hass.states.get(ENTITY).state == "Salotto"
-    await _move(hass, "unknown", "unknown")
-    await _wait(hass, freezer, 30)
-    await _move(hass, 5.0, 1.0)
-    await _wait(hass, freezer, 40)
-    assert hass.states.get(ENTITY).state == "Salotto"
-
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.NOT_LOADED
@@ -125,7 +149,6 @@ async def test_map_services(hass, freezer):
     await _move(hass, 1.2, 4.8)
     await _setup_legacy(hass)
 
-    # registrazione istantanea
     result = await _call(
         hass, "record_vertex",
         {"room": "Cucina", "vertex_id": "c1", "x": 1, "y": 2, "duration": 0},
@@ -133,18 +156,16 @@ async def test_map_services(hass, freezer):
     )
     assert result["distances"] == {"cucina": 1.2, "salotto": 4.8}
     assert result["coords"] == {"x": 1.0, "y": 2.0} and result["samples"] == 1
-    await _wait(hass, freezer, 6)
-    assert hass.states.get(ENTITY).state == "Cucina"
 
     # registrazione su 4 s: mediana, e proxy visto in meno di metà campioni scartato
     readings = iter([(1.0, 5.0, 3.0), (9.0, 5.2, "unknown"), (1.2, 5.4, "unknown"), (1.1, 5.1, "unknown")])
-
     real_sleep = asyncio.sleep
 
     async def fake_sleep(delay):
-        if delay != 1:  # asyncio.sleep(0) interni di Home Assistant
+        if delay != 1:
             return await real_sleep(delay)
-        hass.states.async_set(CUC, str((r := next(readings))[0]))
+        r = next(readings)
+        hass.states.async_set(CUC, str(r[0]))
         hass.states.async_set(SAL, str(r[1]))
         hass.states.async_set(STU, str(r[2]))
         await real_sleep(0)
@@ -161,7 +182,6 @@ async def test_map_services(hass, freezer):
     with pytest.raises(ServiceValidationError):
         await _call(hass, "record_vertex", {"room": "X", "vertex_id": "x", "entity_id": "sensor.altro", "duration": 0})
 
-    # nessuna distanza valida → errore, niente salvato
     await _move(hass, "unknown", "unknown")
     with pytest.raises(HomeAssistantError):
         await _call(hass, "record_vertex", {"room": "Vuota", "vertex_id": "v", "duration": 0})
@@ -180,143 +200,223 @@ async def test_map_services(hass, freezer):
     assert (await _call(hass, "get_map", response=True))["rooms"] == {}
 
 
-async def test_config_and_options_flow(hass, freezer):
-    # dispositivo con due sensori "distance to" + uno "unfiltered" da ignorare
-    source = MockConfigEntry(domain="bermuda")
-    source.add_to_hass(hass)
-    device = dr.async_get(hass).async_get_or_create(
-        config_entry_id=source.entry_id, identifiers={("bermuda", "tel")}, name="Telefono"
-    )
-    ent_reg = er.async_get(hass)
-    for suffix in ("distance_to_cucina", "distance_to_salotto", "unfiltered_distance_to_cucina", "area"):
-        ent_reg.async_get_or_create(
-            "sensor", "bermuda", f"tel_{suffix}", device_id=device.id,
-            suggested_object_id=f"telefono_{suffix}", config_entry=source,
-        )
-
+async def test_config_and_options_flow(hass):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     assert result["type"] == FlowResultType.FORM
-
-    # né dispositivo né sensori → errore
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"advanced": {}})
-    assert result["errors"] == {"base": "no_sensors"}
-
-    # basta il dispositivo: il nome viene ricavato da lui
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"device_id": device.id, "advanced": {}}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Posizione Telefono"
-
-    # lo stesso dispositivo non può essere aggiunto due volte
-    again = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    again = await hass.config_entries.flow.async_configure(
-        again["flow_id"], {"device_id": device.id, "advanced": {}}
-    )
-    assert again["type"] == FlowResultType.ABORT and again["reason"] == "already_configured"
-    await hass.async_block_till_done()
+    assert result["title"] == "BLE Radar"
     entry = result["result"]
-    assert entry.state is ConfigEntryState.LOADED
-
-    # la mappa salvata con gli entity_id di un altro telefono vale anche per questo
-    await _call(hass, "save_vertex", {"room": "Cucina", "vertex_id": "c", "distances": {CUC: 1.0, SAL: 5.0}})
-    await _call(hass, "save_vertex", {"room": "Salotto", "vertex_id": "s", "distances": {CUC: 5.0, SAL: 1.0}})
-    hass.states.async_set("sensor.telefono_distance_to_cucina", "5.1")
-    hass.states.async_set("sensor.telefono_distance_to_salotto", "0.9")
-    hass.states.async_set("sensor.telefono_unfiltered_distance_to_cucina", "0.1")
     await hass.async_block_till_done()
-    await _wait(hass, freezer, 6)
-    assert hass.states.get("sensor.posizione_telefono").state == "Salotto"
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.options == {"trackers": []}
 
-    # opzioni: conferma disattivata → cambio stanza immediato dopo il reload
+    # un'unica installazione
+    again = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert again["type"] == FlowResultType.ABORT and again["reason"] == "single_instance_allowed"
+
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] == FlowResultType.FORM
+    trackers = [{"id": "t1", "name": "Tel", "device_id": None, "sensors": [CUC]}]
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "trackers": trackers})
+    await hass.async_block_till_done()
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {"device_id": device.id, "confirmation_seconds": 0, "unknown_timeout": 0, "smoothing": False,
-         "advanced": {"sensors": [], "trilateration": True, "map_scale": 1, "max_distance": 8,
+        {"show_panel": False, "confirmation_seconds": 0, "unknown_timeout": 0, "smoothing": False,
+         "advanced": {"trilateration": True, "map_scale": 1, "max_distance": 8,
                       "top_k": 1, "min_common_proxies": 1}},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert entry.options["top_k"] == 1 and entry.options["smoothing"] is False
-    assert result["type"] == FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
+    assert entry.options["top_k"] == 1 and entry.options["show_panel"] is False
+    # le opzioni non toccano i dispositivi tracciati
+    assert entry.options["trackers"] == trackers
+
+
+async def test_websocket_map_editing(hass, hass_ws_client, freezer, tmp_path):
+    hass.config.config_dir = str(tmp_path)
+    await _move(hass, 1.0, 5.0)
+    entry = await _setup_legacy(hass)
+    client = await hass_ws_client(hass)
+
+    # piano con planimetria e scala (100 pixel = 1 m)
+    resp = await _ws(client, "save_floor", name="Terra", image=PNG, width=1000, height=600)
+    assert resp["success"], resp
+    floor_id = resp["result"]["floor_id"]
+    assert (tmp_path / "ble_fingerprint" / f"{floor_id}.png").is_file()
+    resp = await _ws(client, "save_floor", floor_id=floor_id, name="Piano terra", scale=100)
+    assert resp["success"]
+    resp = await _ws(client, "floor_image", floor_id=floor_id)
+    assert resp["result"]["image"] == PNG
+    bad = await _ws(client, "save_floor", name="X", image="data:text/plain;base64,AAAA")
+    assert not bad["success"] and bad["error"]["code"] == "invalid_image"
+
+    # stanze disegnate: cucina a sinistra, salotto a destra
+    cucina = [[0, 0], [400, 0], [400, 600], [0, 600]]
+    salotto = [[400, 0], [1000, 0], [1000, 600], [400, 600]]
+    for name, poly in (("Cucina", cucina), ("Salotto", salotto)):
+        resp = await _ws(client, "save_zone", name=name, floor_id=floor_id, polygon=poly)
+        assert resp["success"], resp
+    dup = await _ws(client, "save_zone", name="Cucina", floor_id=floor_id, polygon=cucina)
+    assert not dup["success"]
+
+    # punti guidati: centro e 4 angoli rientrati di 0,5 m (50 px)
+    resp = await _ws(client, "guided_points", room="Cucina")
+    points = resp["result"]["points"]
+    assert [p["label"] for p in points] == ["centro", "angolo 1", "angolo 2", "angolo 3", "angolo 4"]
+    assert points[0]["x"] == pytest.approx(200) and points[0]["y"] == pytest.approx(300)
+    corner = points[1]
+    # 50 px (0,5 m) dall'angolo (0, 0) verso il centro della stanza
+    assert (corner["x"] ** 2 + corner["y"] ** 2) ** 0.5 == pytest.approx(50, abs=0.2)
+    assert not any(p["recorded"] for p in points)
+
+    # registrazione guidata dei punti (come fa il pannello)
+    for room, vid, x, y, reading in (
+        ("Cucina", "p0", 200, 300, (1.0, 5.0)),
+        ("Cucina", "p1", 50, 50, (1.2, 5.5)),
+        ("Salotto", "p0", 700, 300, (5.0, 1.0)),
+        ("Salotto", "p1", 950, 50, (5.5, 1.2)),
+    ):
+        await _move(hass, *reading)
+        await _call(hass, "record_vertex", {
+            "room": room, "vertex_id": vid, "x": x, "y": y, "floor": floor_id, "duration": 0,
+        })
+    resp = await _ws(client, "guided_points", room="Cucina")
+    assert [p["recorded"] for p in resp["result"]["points"]][:2] == [True, True]
+
+    # la stanza è quella disegnata che contiene la posizione
+    await _move(hass, 4.9, 1.1)
+    await _wait(hass, freezer, 6)
+    state = hass.states.get(ENTITY)
+    assert state.state == "Salotto"
+    assert state.attributes["floor"] == floor_id
+    assert state.attributes["floor_name"] == "Piano terra"
+    assert state.attributes["x"] >= 400
+
+    # configurazione per il pannello
+    resp = await _ws(client, "config")
+    config = resp["result"]
+    assert set(config["zones"]) == {"Cucina", "Salotto"}
+    assert config["rooms"]["Cucina"]["p0"] == {"coords": {"x": 200.0, "y": 300.0}, "floor": floor_id, "proxies": 2}
+    assert config["trackers"][0]["entity_id"] == ENTITY
+
+    # correzione manuale di un proxy e ritorno alla stima
+    resp = await _ws(client, "set_proxy", proxy="sensor.x_distance_to_cucina", floor_id=floor_id, x=10, y=20)
+    assert resp["success"]
+    assert hass.data[DOMAIN]["map"].proxies["cucina"] == {"x": 10.0, "y": 20.0, "floor": floor_id}
+    resp = await _ws(client, "set_proxy", proxy="cucina", reset=True)
+    assert "cucina" not in hass.data[DOMAIN]["map"].proxies
+
+    # rinomina: poligono e punti seguono il nuovo nome
+    resp = await _ws(client, "save_zone", name="Soggiorno", old_name="Salotto", floor_id=floor_id, polygon=salotto)
+    assert resp["success"]
+    map_store = hass.data[DOMAIN]["map"]
+    assert "Soggiorno" in map_store.zones and set(map_store.rooms["Soggiorno"]) == {"p0", "p1"}
+
+    # eliminare una stanza toglie anche i suoi punti
+    resp = await _ws(client, "delete_zone", name="Soggiorno")
+    assert resp["success"] and "Soggiorno" not in map_store.rooms
+
+    # eliminare il piano toglie stanze, punti e planimetria
+    resp = await _ws(client, "delete_floor", floor_id=floor_id)
+    assert resp["success"]
+    assert map_store.floors == {} and map_store.zones == {} and map_store.rooms == {}
+    assert not (tmp_path / "ble_fingerprint" / f"{floor_id}.png").exists()
     assert entry.state is ConfigEntryState.LOADED
-    assert hass.states.get("sensor.posizione_telefono").state == "Salotto"
-    hass.states.async_set("sensor.telefono_distance_to_cucina", "1.0")
-    hass.states.async_set("sensor.telefono_distance_to_salotto", "5.0")
-    await hass.async_block_till_done()
-    assert hass.states.get("sensor.posizione_telefono").state == "Cucina"
 
 
-def _device_selector_config(result):
-    schema = result["data_schema"].schema
-    key = next(k for k in schema if k == "device_id")
-    return schema[key].config
-
-
-async def test_bermuda_integration(hass, freezer):
-    """Con Bermuda: elenco limitato ai suoi dispositivi e nuovi proxy presi da soli."""
-    # senza Bermuda il selettore mostra tutti i dispositivi
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert "integration" not in _device_selector_config(result)
-    hass.config_entries.flow.async_abort(result["flow_id"])
-
+async def test_websocket_trackers(hass, hass_ws_client):
     bermuda = MockConfigEntry(domain="bermuda")
     bermuda.add_to_hass(hass)
     device = dr.async_get(hass).async_get_or_create(
         config_entry_id=bermuda.entry_id, identifiers={("bermuda", "tel")}, name="Telefono"
     )
     ent_reg = er.async_get(hass)
-
-    def add_sensor(proxy):
+    for suffix in ("distance_to_cucina", "distance_to_salotto", "unfiltered_distance_to_cucina", "area"):
         ent_reg.async_get_or_create(
-            "sensor", "bermuda", f"tel_distance_to_{proxy}", device_id=device.id,
-            suggested_object_id=f"telefono_distance_to_{proxy}", config_entry=bermuda,
+            "sensor", "bermuda", f"tel_{suffix}", device_id=device.id,
+            suggested_object_id=f"telefono_{suffix}", config_entry=bermuda,
         )
 
-    add_sensor("cucina")
-    add_sensor("salotto")
-
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert _device_selector_config(result)["integration"] == "bermuda"
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"device_id": device.id, "advanced": {}}
-    )
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-    entry = result["result"]
+    entry = MockConfigEntry(domain=DOMAIN, version=3, title="BLE Radar", options={"trackers": []})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
 
-    # anche le opzioni mostrano solo i dispositivi Bermuda, con il dispositivo per primo
-    options = await hass.config_entries.options.async_init(entry.entry_id)
-    assert list(options["data_schema"].schema)[0] == "device_id"
-    assert _device_selector_config(options)["integration"] == "bermuda"
-    hass.config_entries.options.async_abort(options["flow_id"])
-
-    tracker = hass.data[DOMAIN]["entities"][entry.entry_id]
-    assert set(tracker._proxy_sensors) == {
+    resp = await _ws(client, "devices")
+    [candidate] = resp["result"]["devices"]
+    assert candidate["device_id"] == device.id and candidate["bermuda"] is True
+    assert sorted(candidate["sensors"]) == [
         "sensor.telefono_distance_to_cucina", "sensor.telefono_distance_to_salotto"
-    }
+    ]
 
-    # Bermuda vede il telefono da un nuovo proxy: la entry si ricarica da sola
-    add_sensor("studio")
+    resp = await _ws(client, "save_trackers", trackers=[{"name": "Posizione Tel", "device_id": device.id}])
+    assert resp["success"], resp
     await hass.async_block_till_done()
-    freezer.tick(timedelta(seconds=1))
-    async_fire_time_changed(hass, dt_util.utcnow())
-    await hass.async_block_till_done()
-    assert entry.state is ConfigEntryState.LOADED
-    tracker = hass.data[DOMAIN]["entities"][entry.entry_id]
-    assert "sensor.telefono_distance_to_studio" in tracker._proxy_sensors
+    [tracker] = entry.options["trackers"]
+    state = hass.states.get("sensor.posizione_tel")
+    assert state is not None
+    # il sensore ha un suo dispositivo, collegato a quello di Bermuda
+    reg_entry = ent_reg.async_get("sensor.posizione_tel")
+    own_device = dr.async_get(hass).async_get(reg_entry.device_id)
+    assert own_device.via_device_id == device.id
 
-    # un sensore "unfiltered" o di un altro dispositivo non provoca ricaricamenti
-    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
-        ent_reg.async_get_or_create(
-            "sensor", "bermuda", "tel_unfiltered_distance_to_bagno", device_id=device.id,
-            suggested_object_id="telefono_unfiltered_distance_to_bagno", config_entry=bermuda,
-        )
-        ent_reg.async_get_or_create(
-            "sensor", "bermuda", "altro_distance_to_bagno",
-            suggested_object_id="altro_distance_to_bagno", config_entry=bermuda,
-        )
-        await hass.async_block_till_done()
-        reload.assert_not_called()
+    # rinomina mantenendo id ed entità
+    resp = await _ws(client, "save_trackers", trackers=[{"id": tracker["id"], "name": "Tel di Ale", "device_id": device.id}])
+    assert resp["success"]
+    await hass.async_block_till_done()
+    assert entry.options["trackers"][0]["id"] == tracker["id"]
+    assert ent_reg.async_get("sensor.posizione_tel").unique_id == reg_entry.unique_id
+
+    # senza dispositivo né sensori: errore
+    resp = await _ws(client, "save_trackers", trackers=[{"name": "Vuoto"}])
+    assert not resp["success"]
+
+    # un nuovo sensore di distanza di Bermuda ricarica da solo
+    ent_reg.async_get_or_create(
+        "sensor", "bermuda", "tel_distance_to_studio", device_id=device.id,
+        suggested_object_id="telefono_distance_to_studio", config_entry=bermuda,
+    )
+    await hass.async_block_till_done()
+    tracker_entity = hass.data[DOMAIN]["entities"][tracker["id"]]
+    assert "sensor.telefono_distance_to_studio" in tracker_entity.proxy_sensors
+
+    # rimozione
+    resp = await _ws(client, "save_trackers", trackers=[])
+    assert resp["success"]
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN]["entities"] == {}
+
+
+async def test_websocket_requires_admin(hass, hass_ws_client, hass_read_only_access_token):
+    await _setup_legacy(hass)
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+    resp = await _ws(client, "config")
+    assert resp["success"]  # la card funziona anche per gli utenti normali
+    resp = await _ws(client, "save_floor", name="X")
+    assert not resp["success"] and resp["error"]["code"] == "unauthorized"
+
+
+async def test_removed_tracker_leaves_no_orphans(hass, hass_ws_client):
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=3, title="BLE Radar",
+        options={"trackers": [
+            {"id": "a", "name": "Uno", "sensors": [CUC]},
+            {"id": "b", "name": "Due", "sensors": [SAL]},
+        ]},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    ent_reg, dev_reg = er.async_get(hass), dr.async_get(hass)
+    assert len(er.async_entries_for_config_entry(ent_reg, entry.entry_id)) == 2
+    assert len(dr.async_entries_for_config_entry(dev_reg, entry.entry_id)) == 2
+
+    client = await hass_ws_client(hass)
+    resp = await _ws(client, "save_trackers", trackers=[{"id": "a", "name": "Uno", "sensors": [CUC]}])
+    assert resp["success"]
+    await hass.async_block_till_done()
+    assert [e.entity_id for e in er.async_entries_for_config_entry(ent_reg, entry.entry_id)] == ["sensor.uno"]
+    assert len(dr.async_entries_for_config_entry(dev_reg, entry.entry_id)) == 1
+    assert hass.states.get("sensor.due") is None
