@@ -7,6 +7,22 @@ CONF_NAME = "name"
 CONF_DEVICE = "device_id"
 CONF_SENSORS = "sensors"
 
+# --- Dispositivi tracciati (nelle opzioni della config entry) ---
+CONF_TRACKERS = "trackers"
+TRACKER_ID = "id"
+TRACKER_UNIQUE_ID = "unique_id"
+
+# --- Pannello e card ---
+CONF_SHOW_PANEL = "show_panel"
+DEFAULT_SHOW_PANEL = True
+PANEL_URL_PATH = "ble-radar"
+PANEL_TITLE = "BLE Radar"
+PANEL_ICON = "mdi:radar"
+STATIC_URL = "/ble_fingerprint_static"
+
+# Punti della calibrazione guidata: distanza dagli angoli verso il centro (m)
+GUIDED_CORNER_INSET_M = 0.5
+
 # --- Opzioni ---
 CONF_CONFIRMATION_SECONDS = "confirmation_seconds"
 CONF_MAX_DISTANCE = "max_distance"

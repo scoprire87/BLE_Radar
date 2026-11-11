@@ -23,16 +23,13 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
-
-from .fingerprint import proxy_key
 
 from .const import (
     CONF_DEVICE,
     CONF_NAME,
     CONF_SENSORS,
+    CONF_TRACKERS,
     DOMAIN,
     LEGACY_NAME,
     LEGACY_PROXY_SENSORS,
@@ -43,10 +40,11 @@ from .const import (
     SERVICE_RECORD_VERTEX,
     SERVICE_SAVE_VERTEX,
     SERVICE_SET_PROXY,
-    SIGNAL_MAP_UPDATED,
-    STORAGE_KEY,
-    STORAGE_VERSION,
+    TRACKER_ID,
+    TRACKER_UNIQUE_ID,
 )
+from .fingerprint import proxy_key
+from .mapstore import MapStore
 
 if TYPE_CHECKING:
     from .sensor import BLEFingerprintSensor
@@ -119,29 +117,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Carica la mappa salvata e registra i servizi."""
     domain_data = hass.data.setdefault(DOMAIN, {})
 
-    store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-    map_data = await store.async_load()
-    if not isinstance(map_data, dict):
-        map_data = {}
-    if not isinstance(map_data.get("rooms"), dict):
-        map_data["rooms"] = {}
-    if not isinstance(map_data.get("proxies"), dict):
-        map_data["proxies"] = {}
-
-    domain_data["map_data"] = map_data
-    domain_data["map_version"] = 1
-    # sensori di posizione attivi, per entry_id (usati da record_vertex)
+    map_store = MapStore(hass)
+    await map_store.async_load()
+    domain_data["map"] = map_store
+    # sensori di posizione attivi, per id del dispositivo tracciato
     domain_data.setdefault("entities", {})
 
-    rooms: dict[str, dict[str, Any]] = map_data["rooms"]
-    proxy_overrides: dict[str, dict[str, Any]] = map_data["proxies"]
+    rooms: dict[str, dict[str, Any]] = map_store.rooms
+    proxy_overrides: dict[str, dict[str, Any]] = map_store.proxies
 
     async def _async_save_map() -> None:
-        await store.async_save(map_data)
-        # i sensori ricalcolano proxy e piani quando la versione cambia
-        domain_data["map_version"] = domain_data.get("map_version", 0) + 1
-        # ricalcola subito la posizione con la mappa aggiornata
-        async_dispatcher_send(hass, SIGNAL_MAP_UPDATED)
+        # i sensori ricalcolano la posizione con la mappa aggiornata
+        await map_store.async_save()
+
+    # pylint: disable-next=import-outside-toplevel
+    from .panel import async_setup_frontend
+    from .websocket import async_setup_websocket
+
+    await async_setup_frontend(hass)
+    async_setup_websocket(hass)
 
     async def _async_store_vertex(
         room: str,
@@ -261,7 +255,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             )
 
         del rooms[room][vertex_id]
-        if not rooms[room]:
+        if not rooms[room] and room not in map_store.zones:
             del rooms[room]
         await _async_save_map()
         _LOGGER.info("Eliminato vertice %s da %s", vertex_id, room)
@@ -269,10 +263,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def handle_delete_room(call: ServiceCall) -> None:
         room: str = call.data[ATTR_ROOM]
 
-        if room not in rooms:
+        if not map_store.delete_room(room):
             raise ServiceValidationError(f"Stanza {room} non trovata nella mappa")
 
-        del rooms[room]
         await _async_save_map()
         _LOGGER.info("Eliminata stanza %s dalla mappa", room)
 
@@ -302,8 +295,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     async def handle_get_map(call: ServiceCall) -> ServiceResponse:
         return {
-            "rooms": copy.deepcopy(rooms),
-            "proxies": copy.deepcopy(proxy_overrides),
+            **map_store.snapshot(),
             # posizione e correzione dei proxy stimate da ogni sensore attivo
             "estimated_proxies": {
                 tracker.entity_id: tracker.proxy_diagnostics
@@ -345,31 +337,58 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migra le config entry create prima della configurazione da interfaccia."""
-    if entry.version > 2:
+    """Migra le config entry delle versioni precedenti.
+
+    - versione 1: nessun dato, nome e sensori erano fissi nel codice;
+    - versione 2: un dispositivo per config entry (nome, dispositivo, sensori);
+    - versione 3: un'unica integrazione con l'elenco dei dispositivi tracciati
+      nelle opzioni, gestito dalla pagina laterale.
+    """
+    if entry.version > 3:
         return False
 
+    data = dict(entry.data)
     if entry.version == 1:
-        # la versione 1 non aveva dati: nome e sensori erano fissi nel codice
-        data = {
-            CONF_NAME: LEGACY_NAME,
-            CONF_SENSORS: list(LEGACY_PROXY_SENSORS),
-            **entry.data,
+        data = {CONF_NAME: LEGACY_NAME, CONF_SENSORS: list(LEGACY_PROXY_SENSORS), **data}
+
+    if entry.version < 3:
+        options = dict(entry.options)
+        tracker = {
+            TRACKER_ID: entry.entry_id,
+            # mantiene l'entità esistente (storico, automazioni)
+            TRACKER_UNIQUE_ID: f"{entry.entry_id}_position",
+            CONF_NAME: data.get(CONF_NAME) or entry.title,
+            CONF_DEVICE: options.pop(CONF_DEVICE, data.get(CONF_DEVICE)),
+            CONF_SENSORS: options.pop(CONF_SENSORS, data.get(CONF_SENSORS)) or [],
         }
-        hass.config_entries.async_update_entry(entry, data=data, version=2)
-        _LOGGER.info("Config entry BLE Fingerprint migrata alla versione 2")
+        options[CONF_TRACKERS] = [tracker]
+        hass.config_entries.async_update_entry(
+            entry, data={}, options=options, version=3, unique_id=DOMAIN
+        )
+        _LOGGER.info("Config entry BLE Fingerprint migrata alla versione 3")
 
     return True
 
 
+def get_trackers(entry: ConfigEntry) -> list[dict[str, Any]]:
+    """Dispositivi tracciati configurati nella entry."""
+    trackers = entry.options.get(CONF_TRACKERS) or []
+    return [t for t in trackers if isinstance(t, dict) and t.get(TRACKER_ID)]
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Imposta una config entry inoltrando il setup alla piattaforma sensor."""
+    """Crea un sensore di posizione per ogni dispositivo tracciato."""
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
 
-    if device_id := {**entry.data, **entry.options}.get(CONF_DEVICE):
-        entry.async_on_unload(_async_watch_device_sensors(hass, entry, device_id))
+    for tracker in get_trackers(entry):
+        if device_id := tracker.get(CONF_DEVICE):
+            entry.async_on_unload(_async_watch_device_sensors(hass, entry, device_id))
 
+    # pylint: disable-next=import-outside-toplevel
+    from .panel import async_register_panel
+
+    async_register_panel(hass, entry)
     return True
 
 
@@ -414,10 +433,16 @@ def _async_watch_device_sensors(
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Ricarica la config entry quando cambiano le opzioni."""
+    """Ricarica la config entry quando cambiano le opzioni o i dispositivi."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Scarica una config entry, rimuovendo la piattaforma sensor."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    """Scarica una config entry, rimuovendo i sensori e il pannello."""
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        # pylint: disable-next=import-outside-toplevel
+        from .panel import async_remove_panel
+
+        async_remove_panel(hass, entry)
+    return unloaded

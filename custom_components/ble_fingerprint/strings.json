@@ -2,49 +2,26 @@
     "config": {
         "step": {
             "user": {
-                "title": "BLE Fingerprint Positioning",
-                "description": "Pick the device to track: its distance sensors (e.g. Bermuda) are found automatically.",
-                "data": {
-                    "device_id": "Tracked device",
-                    "name": "Sensor name (optional)"
-                },
-                "data_description": {
-                    "device_id": "All of its “distance to …” sensors are used.",
-                    "name": "If left empty: “Posizione” followed by the device name."
-                },
-                "sections": {
-                    "advanced": {
-                        "name": "Advanced",
-                        "data": {
-                            "sensors": "Additional distance sensors"
-                        },
-                        "data_description": {
-                            "sensors": "Distance sensors (in meters) to use in addition to, or instead of, the device ones."
-                        }
-                    }
-                }
+                "title": "BLE Radar",
+                "description": "After installing, open the “BLE Radar” page in the sidebar: there you upload the floor plan, draw the rooms, choose the devices to track and calibrate the points."
             }
         },
-        "error": {
-            "no_sensors": "No distance sensor found: pick a device with enabled “distance to” sensors or select the sensors manually.",
-            "name_required": "Enter a name."
-        },
         "abort": {
-            "already_configured": "This device is already tracked."
+            "single_instance_allowed": "BLE Radar is already installed: manage everything from the sidebar page."
         }
     },
     "options": {
         "step": {
             "init": {
-                "title": "BLE Fingerprint options",
+                "title": "BLE Radar options",
                 "data": {
-                    "device_id": "Tracked device",
+                    "show_panel": "Show the sidebar page",
                     "confirmation_seconds": "Room change confirmation",
                     "unknown_timeout": "Back to “Sconosciuta” (unknown)",
                     "smoothing": "Smooth movement"
                 },
                 "data_description": {
-                    "device_id": "All of its “distance to …” sensors are used.",
+                    "show_panel": "The “BLE Radar” page for floor plan, rooms, calibration and devices.",
                     "confirmation_seconds": "Seconds the new room must stay the best match before switching (0 = immediate).",
                     "unknown_timeout": "Seconds without any valid proxy before the position becomes unknown (0 = never).",
                     "smoothing": "Kalman filter on the coordinates: fewer jumps, with a slight lag when moving."
@@ -53,27 +30,23 @@
                     "advanced": {
                         "name": "Advanced",
                         "data": {
-                            "sensors": "Additional distance sensors",
                             "trilateration": "Trilateration",
-                            "map_scale": "Map units per metre",
+                            "map_scale": "Default scale (units per metre)",
                             "max_distance": "Maximum distance",
                             "top_k": "Nearest vertices (k)",
                             "min_common_proxies": "Minimum common proxies"
                         },
                         "data_description": {
-                            "sensors": "Distance sensors (in meters) to use in addition to, or instead of, the device ones.",
                             "trilateration": "Estimate the proxy positions from vertices with coordinates and use them to refine x/y together with the fingerprint.",
-                            "map_scale": "1 if the vertex coordinates are in metres, 100 if in centimetres, etc.",
+                            "map_scale": "Only used for points without a floor or for floors whose scale is not set in the sidebar page.",
                             "max_distance": "Distances at or above this are ignored; an unseen proxy is treated as being at this distance.",
                             "top_k": "Number of most similar vertices used to pick the room and compute the coordinates.",
                             "min_common_proxies": "Proxies the current reading and a vertex must share for the vertex to be considered."
                         }
                     }
-                }
+                },
+                "description": "Map, rooms and devices are managed from the “BLE Radar” sidebar page."
             }
-        },
-        "error": {
-            "no_sensors": "No distance sensor found: pick a device with enabled “distance to” sensors or select the sensors manually."
         }
     },
     "services": {

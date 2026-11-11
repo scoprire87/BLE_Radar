@@ -24,6 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
+from . import get_trackers
 from .const import (
     CONF_CONFIRMATION_SECONDS,
     CONF_DEVICE,
@@ -47,6 +48,8 @@ from .const import (
     DEFAULT_UNKNOWN_TIMEOUT,
     DOMAIN,
     SIGNAL_MAP_UPDATED,
+    TRACKER_ID,
+    TRACKER_UNIQUE_ID,
     UNKNOWN_ROOM,
 )
 from .fingerprint import (
@@ -65,6 +68,7 @@ from .geometry import (
     fingerprint_quality,
     fuse,
     jump_weight,
+    locate_in_zones,
     map_bounds,
     trilaterate,
 )
@@ -124,24 +128,28 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Crea il sensore di posizione della config entry."""
-    config: dict[str, Any] = {**entry.data, **entry.options}
+    """Crea un sensore di posizione per ogni dispositivo tracciato."""
+    config: dict[str, Any] = entry.options
+    entities: list[BLEFingerprintSensor] = []
 
-    device_id = config.get(CONF_DEVICE)
-    proxy_sensors = async_resolve_proxy_sensors(
-        hass, device_id, config.get(CONF_SENSORS)
-    )
-    if not proxy_sensors:
-        _LOGGER.warning(
-            "%s: nessun sensore di distanza trovato, la posizione resterà sconosciuta",
-            entry.title,
+    for tracker in get_trackers(entry):
+        device_id = tracker.get(CONF_DEVICE)
+        name = tracker.get(CONF_NAME) or DEFAULT_NAME
+        proxy_sensors = async_resolve_proxy_sensors(
+            hass, device_id, tracker.get(CONF_SENSORS)
         )
+        if not proxy_sensors:
+            _LOGGER.warning(
+                "%s: nessun sensore di distanza trovato, la posizione resterà sconosciuta",
+                name,
+            )
 
-    async_add_entities(
-        [
+        entities.append(
             BLEFingerprintSensor(
-                entry_id=entry.entry_id,
-                name=config.get(CONF_NAME) or entry.title or DEFAULT_NAME,
+                tracker_id=tracker[TRACKER_ID],
+                unique_id=tracker.get(TRACKER_UNIQUE_ID)
+                or f"{tracker[TRACKER_ID]}_position",
+                name=name,
                 proxy_sensors=proxy_sensors,
                 confirmation_seconds=float(
                     config.get(CONF_CONFIRMATION_SECONDS, DEFAULT_CONFIRMATION_SECONDS)
@@ -159,19 +167,44 @@ async def async_setup_entry(
                     config.get(CONF_TRILATERATION, DEFAULT_TRILATERATION)
                 ),
                 map_scale=float(config.get(CONF_MAP_SCALE, DEFAULT_MAP_SCALE) or 1.0),
-                device_info=_device_info(hass, entry, device_id),
+                device_info=_device_info(hass, tracker[TRACKER_ID], name, device_id),
             )
-        ]
-    )
+        )
+
+    _async_remove_orphans(hass, entry, entities)
+    async_add_entities(entities)
+
+
+@callback
+def _async_remove_orphans(
+    hass: HomeAssistant, entry: ConfigEntry, entities: list[BLEFingerprintSensor]
+) -> None:
+    """Rimuove sensori e dispositivi dei dispositivi non più tracciati."""
+    wanted_entities = {entity.unique_id for entity in entities}
+    entity_registry = er.async_get(hass)
+    for reg_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if reg_entry.domain == "sensor" and reg_entry.unique_id not in wanted_entities:
+            entity_registry.async_remove(reg_entry.entity_id)
+
+    wanted_devices = {entity.tracker_id for entity in entities}
+    device_registry = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+        if not any(
+            domain == DOMAIN and identifier in wanted_devices
+            for domain, identifier in device.identifiers
+        ):
+            device_registry.async_update_device(
+                device.id, remove_config_entry_id=entry.entry_id
+            )
 
 
 def _device_info(
-    hass: HomeAssistant, entry: ConfigEntry, device_id: str | None
+    hass: HomeAssistant, tracker_id: str, name: str, device_id: str | None
 ) -> DeviceInfo:
     """Dispositivo del sensore, collegato a quello tracciato (es. Bermuda)."""
     info = DeviceInfo(
-        identifiers={(DOMAIN, entry.entry_id)},
-        name=entry.title,
+        identifiers={(DOMAIN, tracker_id)},
+        name=name,
         manufacturer="BLE Fingerprint",
         model="Posizionamento BLE",
         entry_type=dr.DeviceEntryType.SERVICE,
@@ -191,7 +224,8 @@ class BLEFingerprintSensor(SensorEntity):
     def __init__(
         self,
         *,
-        entry_id: str,
+        tracker_id: str,
+        unique_id: str,
         name: str,
         proxy_sensors: list[str],
         confirmation_seconds: float,
@@ -204,9 +238,9 @@ class BLEFingerprintSensor(SensorEntity):
         map_scale: float = DEFAULT_MAP_SCALE,
         device_info: DeviceInfo | None = None,
     ) -> None:
-        self._entry_id = entry_id
+        self._tracker_id = tracker_id
         self._attr_name = name
-        self._attr_unique_id = f"{entry_id}_position"
+        self._attr_unique_id = unique_id
         self._proxy_sensors = proxy_sensors
         self._known_proxies = {proxy_key(entity_id) for entity_id in proxy_sensors}
 
@@ -225,6 +259,9 @@ class BLEFingerprintSensor(SensorEntity):
         self._room_floors: dict[str, str | None] = {}
         self._proxy_model: dict[str | None, dict[str, ProxyEstimate]] = {}
         self._floor_bounds: dict[str | None, tuple[float, float, float, float]] = {}
+        # stanze disegnate, per piano, in metri: [(nome, poligono)]
+        self._zones: dict[str | None, list[tuple[str, list[tuple[float, float]]]]] = {}
+        self._floor_names: dict[str, str] = {}
         self._map_version: int | None = None
         self._last_radii: dict[str, float] = {}
         self._filter = PositionFilter()
@@ -247,16 +284,34 @@ class BLEFingerprintSensor(SensorEntity):
         return normalize_distances(self._current_distances)
 
     @property
+    def tracker_id(self) -> str:
+        """Id del dispositivo tracciato."""
+        return self._tracker_id
+
+    @property
+    def proxy_sensors(self) -> list[str]:
+        """Sensori di distanza usati."""
+        return list(self._proxy_sensors)
+
+    def _floor_scale(self, floor: str | None) -> float:
+        """Unità della mappa per metro del piano (pixel/m se calibrato)."""
+        map_store = self.hass.data.get(DOMAIN, {}).get("map")
+        if map_store is not None and (scale := map_store.floor_scale(floor)):
+            return scale
+        return self._scale
+
+    @property
     def proxy_diagnostics(self) -> dict[str, dict[str, dict]]:
         """Proxy stimati per piano, nelle unità della mappa (servizio get_map)."""
         self._async_refresh_model()
         result: dict[str, dict[str, dict]] = {}
         for floor, proxies in self._proxy_model.items():
             floor_result = result.setdefault(str(floor) if floor is not None else "", {})
+            scale = self._floor_scale(floor)
             for proxy, estimate in proxies.items():
                 data = estimate.as_dict()
-                data["x"] = round(estimate.x * self._scale, 2)
-                data["y"] = round(estimate.y * self._scale, 2)
+                data["x"] = round(estimate.x * scale, 2)
+                data["y"] = round(estimate.y * scale, 2)
                 # residuo in metri, come le distanze
                 floor_result[proxy] = data
         return result
@@ -264,28 +319,50 @@ class BLEFingerprintSensor(SensorEntity):
     @callback
     def _async_refresh_model(self) -> None:
         """Ricalcola piani, proxy e limiti della mappa se la mappa è cambiata."""
-        domain_data = self.hass.data.get(DOMAIN, {})
-        map_data = domain_data.get("map_data", {})
-        version = domain_data.get("map_version", 0)
-        if version == self._map_version:
+        map_store = self.hass.data.get(DOMAIN, {}).get("map")
+        if map_store is None:
             return
-        self._map_version = version
+        if map_store.version == self._map_version:
+            return
+        self._map_version = map_store.version
 
-        rooms = map_data.get("rooms", {})
-        overrides = map_data.get("proxies", {})
+        rooms = map_store.rooms
+        overrides = map_store.proxies
         self._room_floors = room_floors(rooms)
-
-        by_floor = vertices_by_floor(rooms, self._scale)
-        floors = set(by_floor) | {
-            (data.get("floor") or None) for data in overrides.values()
+        # una stanza disegnata appartiene al piano su cui è disegnata
+        for name, zone in map_store.zones.items():
+            self._room_floors[name] = zone.get("floor")
+        self._floor_names = {
+            floor_id: floor.get("name") or floor_id
+            for floor_id, floor in map_store.floors.items()
         }
+
+        self._zones = {}
+        for name, zone in map_store.zones.items():
+            floor = zone.get("floor")
+            scale = self._floor_scale(floor)
+            polygon = [
+                (float(p[0]) / scale, float(p[1]) / scale)
+                for p in zone.get("polygon") or []
+                if isinstance(p, (list, tuple)) and len(p) == 2
+            ]
+            if len(polygon) >= 3:
+                self._zones.setdefault(floor, []).append((name, polygon))
+
+        by_floor = vertices_by_floor(rooms, self._floor_scale)
+        floors = (
+            set(by_floor)
+            | {(data.get("floor") or None) for data in overrides.values()}
+            | set(self._zones)
+        )
 
         self._proxy_model = {}
         self._floor_bounds = {}
         for floor in floors:
             vertices = by_floor.get(floor, [])
+            scale = self._floor_scale(floor)
             floor_overrides = {
-                proxy: {**data, "x": data["x"] / self._scale, "y": data["y"] / self._scale}
+                proxy: {**data, "x": data["x"] / scale, "y": data["y"] / scale}
                 for proxy, data in overrides.items()
                 if (data.get("floor") or None) == floor
                 and isinstance(data.get("x"), (int, float))
@@ -293,9 +370,11 @@ class BLEFingerprintSensor(SensorEntity):
             }
             proxies = estimate_proxies(vertices, floor_overrides)
             self._proxy_model[floor] = proxies
-            points = [(v[0], v[1]) for v in vertices] + [
-                (p.x, p.y) for p in proxies.values()
-            ]
+            points = (
+                [(v[0], v[1]) for v in vertices]
+                + [(p.x, p.y) for p in proxies.values()]
+                + [pt for _, poly in self._zones.get(floor, []) for pt in poly]
+            )
             if (bounds := map_bounds(points)) is not None:
                 self._floor_bounds[floor] = bounds
 
@@ -309,7 +388,7 @@ class BLEFingerprintSensor(SensorEntity):
             if val is not None:
                 self._current_distances[proxy] = val
 
-        self.hass.data[DOMAIN]["entities"][self._entry_id] = self
+        self.hass.data[DOMAIN]["entities"][self._tracker_id] = self
 
         self.async_on_remove(self._async_cleanup)
         if self._proxy_sensors:
@@ -332,7 +411,9 @@ class BLEFingerprintSensor(SensorEntity):
         """Annulla i timer e rimuove il sensore dall'elenco di quelli attivi."""
         self._cancel_confirmation()
         self._cancel_unknown()
-        self.hass.data.get(DOMAIN, {}).get("entities", {}).pop(self._entry_id, None)
+        entities = self.hass.data.get(DOMAIN, {}).get("entities", {})
+        if entities.get(self._tracker_id) is self:
+            entities.pop(self._tracker_id)
 
     @callback
     def _cancel_confirmation(self) -> None:
@@ -377,7 +458,8 @@ class BLEFingerprintSensor(SensorEntity):
             return
         self._cancel_unknown()
 
-        rooms = self.hass.data.get(DOMAIN, {}).get("map_data", {}).get("rooms", {})
+        map_store = self.hass.data.get(DOMAIN, {}).get("map")
+        rooms = map_store.rooms if map_store is not None else {}
         if not rooms:
             return
         self._async_refresh_model()
@@ -396,11 +478,12 @@ class BLEFingerprintSensor(SensorEntity):
 
         floor = self._room_floors.get(estimate.room)
         bounds = self._floor_bounds.get(floor)
+        scale = self._floor_scale(floor)
 
         fingerprint = None
         if estimate.x is not None and estimate.y is not None:
             fingerprint = (
-                (estimate.x / self._scale, estimate.y / self._scale),
+                (estimate.x / scale, estimate.y / scale),
                 fingerprint_quality(estimate.score),
             )
 
@@ -432,6 +515,9 @@ class BLEFingerprintSensor(SensorEntity):
         x = y = None
         confidence = None
         method = None
+        # stanza: quella del fingerprint, oppure quella disegnata sulla mappa
+        # che contiene la posizione calcolata
+        room = estimate.room
         if fused is not None:
             (fx, fy), confidence, method = fused
             if self._smoothing:
@@ -441,12 +527,18 @@ class BLEFingerprintSensor(SensorEntity):
                 if bounds is not None:
                     fx = min(max(fx, bounds[0]), bounds[2])
                     fy = min(max(fy, bounds[1]), bounds[3])
-            x, y = round(fx * self._scale, 2), round(fy * self._scale, 2)
+            if located := locate_in_zones((fx, fy), self._zones.get(floor, [])):
+                # posizione fuori da tutte le stanze (es. nel muro): agganciata
+                # alla stanza più vicina, come in BPS
+                room, (fx, fy) = located
+            x, y = round(fx * scale, 2), round(fy * scale, 2)
 
         new_attrs = {
             "x": x,
             "y": y,
             "floor": floor,
+            "floor_name": self._floor_names.get(floor, floor) if floor else None,
+            "fingerprint_room": estimate.room,
             "confidence": None if confidence is None else round(confidence, 2),
             "method": method,
             "score": estimate.score,
@@ -459,7 +551,7 @@ class BLEFingerprintSensor(SensorEntity):
 
         # --- Filtro di conferma per la stanza ---
         room_changed = False
-        if estimate.room == self._attr_native_value:
+        if room == self._attr_native_value:
             # Siamo tornati alla stanza corrente: annulla qualsiasi cambio pendente
             self._cancel_confirmation()
             self._pending_room = None
@@ -468,12 +560,12 @@ class BLEFingerprintSensor(SensorEntity):
             # Filtro di conferma disattivato: cambio immediato
             self._cancel_confirmation()
             self._pending_room = None
-            self._attr_native_value = estimate.room
+            self._attr_native_value = room
             room_changed = True
 
-        elif estimate.room != self._pending_room:
+        elif room != self._pending_room:
             # Nuova stanza diversa dalla corrente e dalla pendente: (ri)avvia il timer
-            self._pending_room = estimate.room
+            self._pending_room = room
             self._cancel_confirmation()
             self._cancel_confirmation_timer = async_call_later(
                 self.hass, self._confirmation_seconds, self._async_confirm_room
@@ -516,6 +608,8 @@ def _empty_attributes() -> dict[str, Any]:
         "x": None,
         "y": None,
         "floor": None,
+        "floor_name": None,
+        "fingerprint_room": None,
         "confidence": None,
         "method": None,
         "score": None,

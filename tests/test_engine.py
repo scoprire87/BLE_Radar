@@ -98,7 +98,7 @@ async def test_combined_engine(hass, freezer):
     await hass.async_block_till_done()
 
     # mappa: vertici ogni 1,5 m con coordinate in centimetri (scala 100)
-    hass.config_entries.async_update_entry(entry, options={"map_scale": 100})
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "map_scale": 100})
     await hass.async_block_till_done()
     n = 0
     for x in (0.75, 2.25, 3.75, 5.25, 6.75):
@@ -144,7 +144,7 @@ async def test_combined_engine(hass, freezer):
 
     # trilaterazione disattivata: solo fingerprint
     hass.config_entries.async_update_entry(
-        entry, options={"map_scale": 100, "trilateration": False, "smoothing": False}
+        entry, options={**entry.options, "trilateration": False, "smoothing": False}
     )
     await hass.async_block_till_done()
     for eid, d in _reading(2.0, 2.0, rng).items():
