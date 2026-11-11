@@ -2,17 +2,17 @@ save_vertex:
   fields:
     room:
       required: true
-      example: "Cucina"
+      example: "Kitchen"
       selector:
         text:
     vertex_id:
       required: true
-      example: "cucina_1"
+      example: "kitchen_1"
       selector:
         text:
     distances:
       required: true
-      example: '{"sensor.samsung_ale_distance_to_cucina": 1.2, "sensor.samsung_ale_distance_to_salotto": 4.8}'
+      example: '{"sensor.phone_distance_to_kitchen": 1.2, "sensor.phone_distance_to_living_room": 4.8}'
       selector:
         object:
     x:
@@ -32,7 +32,7 @@ save_vertex:
           step: 0.01
           mode: box
     floor:
-      example: "Taverna"
+      example: "Ground floor"
       selector:
         text:
 
@@ -40,16 +40,16 @@ record_vertex:
   fields:
     room:
       required: true
-      example: "Cucina"
+      example: "Kitchen"
       selector:
         text:
     vertex_id:
       required: true
-      example: "cucina_1"
+      example: "kitchen_1"
       selector:
         text:
     entity_id:
-      example: "sensor.posizione_alessandro"
+      example: "sensor.phone_position"
       selector:
         entity:
           integration: ble_fingerprint
@@ -80,7 +80,7 @@ record_vertex:
           step: 0.01
           mode: box
     floor:
-      example: "Taverna"
+      example: "Ground floor"
       selector:
         text:
 
@@ -88,12 +88,12 @@ delete_vertex:
   fields:
     room:
       required: true
-      example: "Cucina"
+      example: "Kitchen"
       selector:
         text:
     vertex_id:
       required: true
-      example: "cucina_1"
+      example: "kitchen_1"
       selector:
         text:
 
@@ -101,7 +101,7 @@ delete_room:
   fields:
     room:
       required: true
-      example: "Cucina"
+      example: "Kitchen"
       selector:
         text:
 
@@ -111,7 +111,7 @@ set_proxy:
   fields:
     proxy:
       required: true
-      example: "cucina"
+      example: "kitchen"
       selector:
         text:
     x:
@@ -131,7 +131,7 @@ set_proxy:
           step: 0.01
           mode: box
     floor:
-      example: "Taverna"
+      example: "Ground floor"
       selector:
         text:
     factor:

@@ -1,15 +1,11 @@
-// Pagina "BLE Radar" nella barra laterale di Home Assistant.
+// "BLE Radar" page in the Home Assistant sidebar.
+import { pointLabel, translator } from "./ble-radar-i18n.js";
 import {
   BASE_STYLE, centroid, drawMap, escapeHtml, floorProxies, floorSize, floorZones,
   forgetImage, loadConfig, loadImage, markerSize, svgEl, trackerStates,
 } from "./ble-radar-common.js";
 
-const TABS = [
-  ["map", "Mappa"],
-  ["plan", "Planimetria e stanze"],
-  ["calibrate", "Calibrazione"],
-  ["devices", "Dispositivi"],
-];
+const TABS = ["map", "plan", "calibrate", "devices"];
 const MAX_IMAGE_SIDE = 2400;
 
 class BleRadarPanel extends HTMLElement {
@@ -31,6 +27,7 @@ class BleRadarPanel extends HTMLElement {
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
+    this._t = translator(hass);
     if (first) this._load();
     else this._onHassUpdate();
   }
@@ -38,14 +35,14 @@ class BleRadarPanel extends HTMLElement {
   set narrow(_value) {}
   set panel(_value) {}
 
-  // ------------------------------------------------------------ dati
+  // ------------------------------------------------------------ data
 
   async _load({ floorId } = {}) {
     try {
       this._config = await loadConfig(this._hass);
     } catch (err) {
       this._config = null;
-      this._message = { error: true, text: `Impossibile leggere la configurazione: ${err.message || err}` };
+      this._message = { error: true, text: this._t("error.config", { error: err.message || err }) };
       this._render();
       return;
     }
@@ -95,17 +92,18 @@ class BleRadarPanel extends HTMLElement {
 
   _render() {
     const root = this.shadowRoot;
+    const t = this._t;
     root.innerHTML = `
       <style>${BASE_STYLE}${PANEL_STYLE}</style>
       <div class="toolbar-top">
         <div class="title">BLE Radar</div>
-        <nav>${TABS.map(([id, label]) =>
-          `<button class="tab ${id === this._tab ? "active" : ""}" data-tab="${id}">${label}</button>`).join("")}
+        <nav>${TABS.map((id) =>
+          `<button class="tab ${id === this._tab ? "active" : ""}" data-tab="${id}">${t(`tab.${id}`)}</button>`).join("")}
         </nav>
       </div>
       <div class="content">
         ${this._message ? `<div class="message ${this._message.error ? "error" : ""}">${escapeHtml(this._message.text)}
-          <button class="link" data-action="dismiss">chiudi</button></div>` : ""}
+          <button class="link" data-action="dismiss">${t("close")}</button></div>` : ""}
         <div id="body"></div>
       </div>`;
     root.querySelectorAll(".tab").forEach((btn) =>
@@ -116,7 +114,7 @@ class BleRadarPanel extends HTMLElement {
 
     const body = root.getElementById("body");
     if (!this._config) {
-      body.innerHTML = `<div class="empty">Caricamento…</div>`;
+      body.innerHTML = `<div class="empty">${t("loading")}</div>`;
       return;
     }
     if (this._tab === "map") this._renderMapTab(body);
@@ -186,19 +184,19 @@ class BleRadarPanel extends HTMLElement {
     if (this._tab === "calibrate") this._drawCalibrationOverlay(svg, r);
   }
 
-  // ------------------------------------------------------------ scheda Mappa
+  // ------------------------------------------------------------ Map tab
 
   _renderMapTab(body) {
+    const t = this._t;
     if (!this._floorId) {
-      body.innerHTML = `<div class="empty">Non c'è ancora nessuna planimetria.<br>
-        Vai su <b>Planimetria e stanze</b> per creare il primo piano.</div>`;
+      body.innerHTML = `<div class="empty">${t("map.no_floor")}</div>`;
       return;
     }
     body.innerHTML = `
       <div class="row">${this._floorSelect()}</div>
       ${this._mapHtml()}
       <div id="trackers"></div>
-      <p class="hint">Quadrati blu: proxy (pieni se posizionati a mano, tratteggiati se stimati dai punti registrati).</p>`;
+      <p class="hint">${t("map.legend")}</p>`;
     this._bindFloorSelect(body);
     this._drawOverlay();
     this._renderTrackerList();
@@ -207,65 +205,68 @@ class BleRadarPanel extends HTMLElement {
   _renderTrackerList() {
     const box = this.shadowRoot.getElementById("trackers");
     if (!box) return;
+    const t = this._t;
     const trackers = trackerStates(this._hass, this._config);
     if (!trackers.length) {
-      box.innerHTML = `<div class="empty">Nessun dispositivo tracciato: aggiungilo nella scheda <b>Dispositivi</b>.</div>`;
+      box.innerHTML = `<div class="empty">${t("map.no_trackers")}</div>`;
       return;
     }
-    box.innerHTML = `<table><tr><th></th><th>Dispositivo</th><th>Stanza</th><th>Piano</th><th>Affidabilità</th><th>Metodo</th></tr>
-      ${trackers.map((t) => {
-        const a = t.state?.attributes || {};
-        return `<tr><td><span class="dot" style="background:${t.color}"></span></td>
-          <td>${escapeHtml(t.name)}</td><td>${escapeHtml(t.state?.state ?? "—")}</td>
+    box.innerHTML = `<table><tr><th></th><th>${t("col.device")}</th><th>${t("col.room")}</th><th>${t("col.floor")}</th><th>${t("col.confidence")}</th><th>${t("col.method")}</th></tr>
+      ${trackers.map((tr) => {
+        const a = tr.state?.attributes || {};
+        return `<tr><td><span class="dot" style="background:${tr.color}"></span></td>
+          <td>${escapeHtml(tr.name)}</td><td>${escapeHtml(roomState(this._hass, tr.state))}</td>
           <td>${escapeHtml(a.floor_name ?? "—")}</td>
           <td>${a.confidence != null ? Math.round(a.confidence * 100) + "%" : "—"}</td>
-          <td>${escapeHtml(a.method ?? "—")}</td></tr>`;
+          <td>${a.method ? escapeHtml(t(`method.${a.method}`)) : "—"}</td></tr>`;
       }).join("")}</table>`;
   }
 
-  // ------------------------------------------------------------ scheda Planimetria
+  // ------------------------------------------------------------ Floor plan tab
 
   _renderPlanTab(body) {
+    const t = this._t;
     const floor = this._floor;
     const zones = this._floorId ? floorZones(this._config, this._floorId) : [];
     const rooms = this._config.rooms || {};
-    const scale = floor?.scale ? `${Number(floor.scale).toFixed(1)} pixel/metro` : "non impostata";
+    const scale = floor?.scale
+      ? t("plan.scale_value", { value: Number(floor.scale).toFixed(1) }) : t("plan.scale_unset");
     body.innerHTML = `
       <div class="card">
         <div class="row">
           ${this._floorSelect()}
-          <button data-action="new-floor">+ Nuovo piano</button>
+          <button data-action="new-floor">${t("plan.new_floor")}</button>
         </div>
         ${floor ? `
         <div class="row">
-          <label>Nome <input id="floor-name" value="${escapeHtml(floor.name)}"></label>
-          <button data-action="rename-floor">Rinomina</button>
-          <label class="file">Carica planimetria<input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
-          <button data-action="scale" class="${this._mode === "scale" ? "active" : ""}">Imposta scala</button>
-          <span class="muted">Scala: ${scale}</span>
-          <button data-action="delete-floor" class="danger">Elimina piano</button>
-        </div>` : `<div class="empty">Crea un piano e carica la sua planimetria (PNG o JPEG).</div>`}
+          <label>${t("plan.name")} <input id="floor-name" value="${escapeHtml(floor.name)}"></label>
+          <button data-action="rename-floor">${t("plan.rename")}</button>
+          <label class="file">${t("plan.upload")}<input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
+          <button data-action="scale" class="${this._mode === "scale" ? "active" : ""}">${t("plan.set_scale")}</button>
+          <span class="muted">${t("plan.scale", { value: scale })}</span>
+          <button data-action="delete-floor" class="danger">${t("plan.delete_floor")}</button>
+        </div>` : `<div class="empty">${t("plan.no_floor")}</div>`}
       </div>
       ${floor ? `
       <div class="row tools">
-        <button data-action="draw" class="${this._mode === "draw" ? "active" : ""}">Disegna stanza</button>
-        <button data-action="proxy" class="${this._mode === "proxy" ? "active" : ""}">Sposta proxy</button>
+        <button data-action="draw" class="${this._mode === "draw" ? "active" : ""}">${t("plan.draw")}</button>
+        <button data-action="proxy" class="${this._mode === "proxy" ? "active" : ""}">${t("plan.move_proxy")}</button>
         <span id="mode-help" class="muted">${this._modeHelp()}</span>
       </div>
       <div id="draft-actions" class="row"></div>
       ${this._mapHtml()}
-      <h3>Stanze di questo piano</h3>
-      ${zones.length ? `<table><tr><th></th><th>Stanza</th><th>Punti registrati</th><th></th></tr>
+      <h3>${t("plan.rooms_title")}</h3>
+      ${zones.length ? `<table><tr><th></th><th>${t("col.room")}</th><th>${t("col.points")}</th><th></th></tr>
         ${zones.map((z) => `<tr>
           <td><span class="dot" style="background:${z.color}"></span></td>
           <td>${escapeHtml(z.name)}</td>
           <td>${Object.keys(rooms[z.name] || {}).length}</td>
           <td class="actions">
-            <button data-zone-action="rename" data-zone="${escapeHtml(z.name)}">Rinomina</button>
-            <button data-zone-action="shape" data-zone="${escapeHtml(z.name)}">Modifica forma</button>
-            <button data-zone-action="delete" data-zone="${escapeHtml(z.name)}" class="danger">Elimina</button>
+            <button data-zone-action="rename" data-zone="${escapeHtml(z.name)}">${t("plan.rename")}</button>
+            <button data-zone-action="shape" data-zone="${escapeHtml(z.name)}">${t("plan.edit_shape")}</button>
+            <button data-zone-action="delete" data-zone="${escapeHtml(z.name)}" class="danger">${t("plan.delete")}</button>
           </td></tr>`).join("")}</table>`
-        : `<div class="empty">Nessuna stanza: premi <b>Disegna stanza</b> e clicca sugli angoli della stanza sulla planimetria.</div>`}
+        : `<div class="empty">${t("plan.no_rooms")}</div>`}
       ` : ""}`;
 
     this._bindFloorSelect(body);
@@ -284,7 +285,7 @@ class BleRadarPanel extends HTMLElement {
     svg.addEventListener("click", (ev) => this._planClick(ev));
     svg.addEventListener("pointerdown", (ev) => this._planPointerDown(ev));
     svg.addEventListener("dblclick", (ev) => {
-      // doppio clic su un angolo: lo toglie (minimo 3 angoli)
+      // double click on a corner removes it (at least 3 corners)
       const handle = ev.target.dataset?.handle;
       if (this._mode !== "shape" || handle === undefined || this._draft.length <= 3) return;
       this._draft.splice(Number(handle), 1);
@@ -295,11 +296,12 @@ class BleRadarPanel extends HTMLElement {
   }
 
   _modeHelp() {
+    const t = this._t;
     switch (this._mode) {
-      case "draw": return "Clicca sugli angoli della stanza, in ordine. Poi dai un nome e salva.";
-      case "scale": return "Clicca su due punti di cui conosci la distanza (ad esempio i lati di una parete).";
-      case "shape": return `Trascina gli angoli di «${this._editZone}». Clic su un lato per aggiungere un angolo, doppio clic su un angolo per toglierlo.`;
-      case "proxy": return "Trascina un proxy dove si trova davvero. Clic su un proxy spostato per riportarlo alla stima.";
+      case "draw": return t("help.draw");
+      case "scale": return t("help.scale");
+      case "shape": return t("help.shape", { room: escapeHtml(this._editZone) });
+      case "proxy": return t("help.proxy");
       default: return "";
     }
   }
@@ -312,19 +314,20 @@ class BleRadarPanel extends HTMLElement {
   }
 
   _renderDraftActions() {
+    const t = this._t;
     const box = this.shadowRoot.getElementById("draft-actions");
     if (!box) return;
     box.innerHTML = "";
     if (this._mode === "draw" && this._draft.length) {
-      box.innerHTML = `<label>Nome stanza <input id="zone-name" placeholder="es. Cucina"></label>
-        <button data-d="save" ${this._draft.length < 3 ? "disabled" : ""}>Salva stanza</button>
-        <button data-d="undo">Togli ultimo punto</button>
-        <button data-d="cancel">Annulla</button>`;
+      box.innerHTML = `<label>${t("draft.room_name")} <input id="zone-name" placeholder="${t("draft.room_placeholder")}"></label>
+        <button data-d="save" ${this._draft.length < 3 ? "disabled" : ""}>${t("draft.save_room")}</button>
+        <button data-d="undo">${t("draft.undo")}</button>
+        <button data-d="cancel">${t("draft.cancel")}</button>`;
     } else if (this._mode === "scale" && this._draft.length === 2) {
-      box.innerHTML = `<label>Distanza tra i due punti <input id="meters" type="number" min="0.1" step="0.01" placeholder="metri"> m</label>
-        <button data-d="save-scale">Salva scala</button><button data-d="cancel">Annulla</button>`;
+      box.innerHTML = `<label>${t("draft.distance")} <input id="meters" type="number" min="0.1" step="0.01" placeholder="${t("draft.metres")}"> m</label>
+        <button data-d="save-scale">${t("draft.save_scale")}</button><button data-d="cancel">${t("draft.cancel")}</button>`;
     } else if (this._mode === "shape") {
-      box.innerHTML = `<button data-d="save-shape">Salva forma</button><button data-d="cancel">Annulla</button>`;
+      box.innerHTML = `<button data-d="save-shape">${t("draft.save_shape")}</button><button data-d="cancel">${t("draft.cancel")}</button>`;
     }
     box.querySelector("[data-d=save]")?.addEventListener("click", () => this._saveDraftZone());
     box.querySelector("[data-d=undo]")?.addEventListener("click", () => {
@@ -383,7 +386,7 @@ class BleRadarPanel extends HTMLElement {
       this._renderDraftActions();
     } else if (this._mode === "shape") {
       if (ev.target.dataset?.handle !== undefined) return;
-      // clic vicino a un lato: aggiunge un angolo in quel punto
+      // click near an edge: add a corner there
       const { index, dist } = nearestEdge(this._draft, point);
       const svg = this.shadowRoot.getElementById("overlay");
       const shown = svg.getBoundingClientRect().width || this._size.width;
@@ -393,8 +396,8 @@ class BleRadarPanel extends HTMLElement {
     } else if (this._mode === "proxy") {
       const g = ev.target.closest?.("[data-proxy]");
       const proxy = g && floorProxies(this._config, this._floorId).find((p) => p.name === g.dataset.proxy);
-      if (proxy?.manual && window.confirm(`Riportare «${proxy.name}» alla posizione stimata?`)) {
-        this._ws("set_proxy", { proxy: proxy.name, reset: true }, `Proxy ${proxy.name} riportato alla stima`)
+      if (proxy?.manual && window.confirm(this._t("confirm.reset_proxy", { proxy: proxy.name }))) {
+        this._ws("set_proxy", { proxy: proxy.name, reset: true }, this._t("msg.proxy_reset", { proxy: proxy.name }))
           .then(() => this._load());
       }
     }
@@ -417,7 +420,7 @@ class BleRadarPanel extends HTMLElement {
         svg.removeEventListener("pointerup", up);
         if (last) {
           this._ws("set_proxy", { proxy: name, floor_id: this._floorId, x: last[0], y: last[1] },
-            `Posizione di ${name} salvata`).then(() => this._load());
+            this._t("msg.proxy_saved", { proxy: name })).then(() => this._load());
         }
       };
       svg.addEventListener("pointerup", up);
@@ -438,9 +441,9 @@ class BleRadarPanel extends HTMLElement {
   }
 
   async _newFloor() {
-    const name = window.prompt("Nome del nuovo piano (es. Piano terra, Taverna)");
+    const name = window.prompt(this._t("prompt.floor_name"));
     if (!name?.trim()) return;
-    const result = await this._ws("save_floor", { name: name.trim() }, `Piano «${name.trim()}» creato: ora carica la planimetria`);
+    const result = await this._ws("save_floor", { name: name.trim() }, this._t("msg.floor_created", { floor: name.trim() }));
     this._mode = null;
     await this._load({ floorId: result.floor_id });
   }
@@ -448,14 +451,14 @@ class BleRadarPanel extends HTMLElement {
   async _renameFloor() {
     const name = this.shadowRoot.getElementById("floor-name").value.trim();
     if (!name) return;
-    await this._ws("save_floor", { floor_id: this._floorId, name }, "Piano rinominato");
+    await this._ws("save_floor", { floor_id: this._floorId, name }, this._t("msg.floor_renamed"));
     await this._load();
   }
 
   async _deleteFloor() {
     const floor = this._floor;
-    if (!window.confirm(`Eliminare il piano «${floor.name}» con le sue stanze e i punti registrati?`)) return;
-    await this._ws("delete_floor", { floor_id: this._floorId }, "Piano eliminato");
+    if (!window.confirm(this._t("confirm.delete_floor", { floor: floor.name }))) return;
+    await this._ws("delete_floor", { floor_id: this._floorId }, this._t("msg.floor_deleted"));
     forgetImage(this._floorId);
     this._floorId = null;
     await this._load();
@@ -464,14 +467,14 @@ class BleRadarPanel extends HTMLElement {
   async _uploadImage(file) {
     if (!file) return;
     try {
-      const { dataUrl, width, height } = await prepareImage(file);
+      const { dataUrl, width, height } = await prepareImage(file, this._t);
       await this._ws("save_floor", {
         floor_id: this._floorId, name: this._floor.name, image: dataUrl, width, height,
-      }, "Planimetria caricata");
+      }, this._t("msg.image_uploaded"));
       forgetImage(this._floorId);
       await this._load();
     } catch (err) {
-      this._message = { error: true, text: `Immagine non valida: ${err.message || err}` };
+      this._message = { error: true, text: this._t("msg.image_invalid", { error: err.message || err }) };
       this._render();
     }
   }
@@ -482,16 +485,16 @@ class BleRadarPanel extends HTMLElement {
     const [[x1, y1], [x2, y2]] = this._draft;
     const pixels = Math.hypot(x2 - x1, y2 - y1);
     await this._ws("save_floor", { floor_id: this._floorId, name: this._floor.name, scale: pixels / meters },
-      `Scala salvata: ${(pixels / meters).toFixed(1)} pixel/metro`);
+      this._t("msg.scale_saved", { value: (pixels / meters).toFixed(1) }));
     this._mode = null; this._draft = [];
     await this._load();
   }
 
   async _saveDraftZone() {
     const name = this.shadowRoot.getElementById("zone-name").value.trim();
-    if (!name) { window.alert("Dai un nome alla stanza"); return; }
+    if (!name) { window.alert(this._t("alert.room_name")); return; }
     await this._ws("save_zone", { name, floor_id: this._floorId, polygon: this._draft },
-      `Stanza «${name}» salvata: registra i suoi punti nella scheda Calibrazione`);
+      this._t("msg.room_saved", { room: name }));
     this._mode = null; this._draft = [];
     await this._load();
   }
@@ -499,7 +502,7 @@ class BleRadarPanel extends HTMLElement {
   async _saveShape() {
     await this._ws("save_zone", {
       name: this._editZone, old_name: this._editZone, floor_id: this._floorId, polygon: this._draft,
-    }, `Forma di «${this._editZone}» salvata`);
+    }, this._t("msg.shape_saved", { room: this._editZone }));
     this._mode = null; this._draft = []; this._editZone = null;
     await this._load();
   }
@@ -507,10 +510,10 @@ class BleRadarPanel extends HTMLElement {
   async _zoneAction(action, name) {
     const zone = this._config.zones[name];
     if (action === "rename") {
-      const newName = window.prompt("Nuovo nome della stanza", name)?.trim();
+      const newName = window.prompt(this._t("prompt.room_name"), name)?.trim();
       if (!newName || newName === name) return;
       await this._ws("save_zone", { name: newName, old_name: name, floor_id: zone.floor, polygon: zone.polygon },
-        "Stanza rinominata");
+        this._t("msg.room_renamed"));
       await this._load();
     } else if (action === "shape") {
       this._mode = "shape";
@@ -518,25 +521,26 @@ class BleRadarPanel extends HTMLElement {
       this._draft = zone.polygon.map((p) => [...p]);
       this._render();
     } else if (action === "delete") {
-      if (!window.confirm(`Eliminare la stanza «${name}» e i suoi punti registrati?`)) return;
-      await this._ws("delete_zone", { name }, "Stanza eliminata");
+      if (!window.confirm(this._t("confirm.delete_room", { room: name }))) return;
+      await this._ws("delete_zone", { name }, this._t("msg.room_deleted"));
       await this._load();
     }
   }
 
-  // ------------------------------------------------------------ scheda Calibrazione
+  // ------------------------------------------------------------ Calibration tab
 
   _renderCalibrateTab(body) {
+    const t = this._t;
     const trackers = trackerStates(this._hass, this._config).filter((t) => t.entity_id);
     const zones = this._floorId ? floorZones(this._config, this._floorId) : [];
     const c = this._calib;
     if (!this._floorId || !zones.length || !trackers.length) {
-      body.innerHTML = `<div class="empty">Per la calibrazione servono:<br>
-        ${!this._floorId || !zones.length ? "• almeno una stanza disegnata (scheda <b>Planimetria e stanze</b>)<br>" : ""}
-        ${!trackers.length ? "• un dispositivo tracciato (scheda <b>Dispositivi</b>)" : ""}</div>`;
+      body.innerHTML = `<div class="empty">${t("calib.requirements")}<br>
+        ${!this._floorId || !zones.length ? `${t("calib.need_room")}<br>` : ""}
+        ${!trackers.length ? t("calib.need_tracker") : ""}</div>`;
       return;
     }
-    if (!trackers.some((t) => t.id === c.tracker)) c.tracker = trackers[0].id;
+    if (!trackers.some((tr) => tr.id === c.tracker)) c.tracker = trackers[0].id;
     if (!zones.some((z) => z.name === c.room)) { c.room = null; c.points = []; }
 
     const point = c.points[c.index];
@@ -545,30 +549,29 @@ class BleRadarPanel extends HTMLElement {
       <div class="card">
         <div class="row">
           ${this._floorSelect()}
-          <label>Dispositivo <select id="c-tracker">${trackers.map((t) =>
-            `<option value="${t.id}" ${t.id === c.tracker ? "selected" : ""}>${escapeHtml(t.name)}</option>`).join("")}</select></label>
-          <label>Stanza <select id="c-room"><option value="">— scegli —</option>${zones.map((z) =>
-            `<option ${z.name === c.room ? "selected" : ""}>${escapeHtml(z.name)}</option>`).join("")}</select></label>
-          <label>Durata <select id="c-duration">${[5, 10, 15, 20, 30].map((d) =>
+          <label>${t("calib.device")} <select id="c-tracker">${trackers.map((tr) =>
+            `<option value="${tr.id}" ${tr.id === c.tracker ? "selected" : ""}>${escapeHtml(tr.name)}</option>`).join("")}</select></label>
+          <label>${t("calib.room")} <select id="c-room"><option value="">${t("calib.choose")}</option>${zones.map((z) =>
+            `<option value="${escapeHtml(z.name)}" ${z.name === c.room ? "selected" : ""}>${escapeHtml(z.name)}</option>`).join("")}</select></label>
+          <label>${t("calib.duration")} <select id="c-duration">${[5, 10, 15, 20, 30].map((d) =>
             `<option value="${d}" ${d === c.duration ? "selected" : ""}>${d} s</option>`).join("")}</select></label>
         </div>
         ${c.room ? `
         <div class="guide">
-          ${point ? `<div class="step">Punto ${c.index + 1} di ${c.points.length}: <b>${escapeHtml(point.label)}</b>
-            ${point.recorded ? '<span class="ok">✓ già registrato</span>' : ""}</div>
-            <div>Vai nel punto evidenziato sulla mappa con il telefono in mano (come lo porti di solito),
-            resta fermo e premi <b>Registra</b>.</div>` : ""}
+          ${point ? `<div class="step">${t("calib.step", { n: c.index + 1, total: c.points.length, label: escapeHtml(pointLabel(t, point)) })}
+            ${point.recorded ? `<span class="ok">${t("calib.already")}</span>` : ""}</div>
+            <div>${t("calib.instructions")}</div>` : ""}
           <div class="row">
-            <button data-c="record" class="primary" ${c.busy || !point ? "disabled" : ""}>${c.busy ? `Registrazione… ${c.remaining ?? ""}s` : "Registra"}</button>
-            <button data-c="prev" ${c.busy || c.index === 0 ? "disabled" : ""}>Indietro</button>
-            <button data-c="next" ${c.busy || c.index >= c.points.length - 1 ? "disabled" : ""}>Salta</button>
-            ${point?.recorded ? `<button data-c="delete" class="danger" ${c.busy ? "disabled" : ""}>Cancella questo punto</button>` : ""}
-            <span class="muted">${done} di ${c.points.length} registrati · clic sulla mappa per aggiungere un punto libero</span>
+            <button data-c="record" class="primary" ${c.busy || !point ? "disabled" : ""}>${c.busy ? t("calib.recording", { seconds: c.remaining ?? "" }) : t("calib.record")}</button>
+            <button data-c="prev" ${c.busy || c.index === 0 ? "disabled" : ""}>${t("calib.back")}</button>
+            <button data-c="next" ${c.busy || c.index >= c.points.length - 1 ? "disabled" : ""}>${t("calib.skip")}</button>
+            ${point?.recorded ? `<button data-c="delete" class="danger" ${c.busy ? "disabled" : ""}>${t("calib.delete_point")}</button>` : ""}
+            <span class="muted">${t("calib.progress", { done, total: c.points.length })}</span>
           </div>
-        </div>` : `<div class="muted">Scegli la stanza da calibrare: ti guiderò punto per punto (centro e angoli).</div>`}
+        </div>` : `<div class="muted">${t("calib.pick_room")}</div>`}
       </div>
       ${this._mapHtml()}
-      <p class="hint">Cerchi verdi: punti già registrati. Il cerchio arancione è il punto in cui posizionarti.</p>`;
+      <p class="hint">${t("calib.legend")}</p>`;
 
     this._bindFloorSelect(body);
     body.querySelector("#c-tracker").addEventListener("change", (ev) => { c.tracker = ev.target.value; this._render(); });
@@ -590,10 +593,10 @@ class BleRadarPanel extends HTMLElement {
     if (room) {
       const result = await this._ws("guided_points", { room });
       c.points = result.points;
-      // punti liberi già registrati in questa stanza
+      // free points already recorded in this room
       for (const [id, v] of Object.entries((this._config.rooms || {})[room] || {})) {
         if (!c.points.some((p) => p.vertex_id === id) && v.coords?.x != null) {
-          c.points.push({ vertex_id: id, label: "punto libero", x: v.coords.x, y: v.coords.y, recorded: true });
+          c.points.push({ vertex_id: id, kind: "free", x: v.coords.x, y: v.coords.y, recorded: true });
         }
       }
       const next = c.points.findIndex((p) => !p.recorded);
@@ -629,8 +632,8 @@ class BleRadarPanel extends HTMLElement {
     if (!c.room || c.busy) return;
     const [x, y] = this._toMap(ev);
     let n = 1;
-    while (c.points.some((p) => p.vertex_id === `libero${n}`)) n += 1;
-    c.points.push({ vertex_id: `libero${n}`, label: "punto libero", x, y, recorded: false });
+    while (c.points.some((p) => p.vertex_id === `free${n}`)) n += 1;
+    c.points.push({ vertex_id: `free${n}`, kind: "free", x, y, recorded: false });
     c.index = c.points.length - 1;
     this._render();
   }
@@ -646,7 +649,7 @@ class BleRadarPanel extends HTMLElement {
     const timer = setInterval(() => {
       c.remaining = Math.max(0, c.remaining - 1);
       const btn = this.shadowRoot.querySelector("[data-c=record]");
-      if (btn) btn.textContent = `Registrazione… ${c.remaining}s`;
+      if (btn) btn.textContent = this._t("calib.recording", { seconds: c.remaining });
     }, 1000);
     try {
       const response = await this._service("record_vertex", {
@@ -660,12 +663,12 @@ class BleRadarPanel extends HTMLElement {
       }, true);
       point.recorded = true;
       const proxies = Object.keys(response?.distances || {}).length;
-      this._message = { text: `Punto «${point.label}» registrato con ${proxies} proxy` };
+      this._message = { text: this._t("msg.point_recorded", { point: pointLabel(this._t, point), count: proxies }) };
       const next = c.points.findIndex((p, i) => i > c.index && !p.recorded);
       if (next >= 0) c.index = next;
-      else this._message.text += c.points.every((p) => p.recorded) ? " · stanza completata!" : "";
+      else this._message.text += c.points.every((p) => p.recorded) ? this._t("msg.room_done") : "";
     } catch (err) {
-      this._message = { error: true, text: `Registrazione non riuscita: ${err.message || err}` };
+      this._message = { error: true, text: this._t("msg.record_failed", { error: err.message || err }) };
     } finally {
       clearInterval(timer);
       c.busy = false;
@@ -677,12 +680,12 @@ class BleRadarPanel extends HTMLElement {
   async _deletePoint() {
     const c = this._calib;
     const point = c.points[c.index];
-    if (!point || !window.confirm(`Cancellare la registrazione del punto «${point.label}»?`)) return;
+    if (!point || !window.confirm(this._t("confirm.delete_point", { point: pointLabel(this._t, point) }))) return;
     try {
       await this._service("delete_vertex", { room: c.room, vertex_id: point.vertex_id });
       point.recorded = false;
-      if (point.label === "punto libero") { c.points.splice(c.index, 1); c.index = Math.max(0, c.index - 1); }
-      this._message = { text: "Punto cancellato" };
+      if (point.kind === "free") { c.points.splice(c.index, 1); c.index = Math.max(0, c.index - 1); }
+      this._message = { text: this._t("msg.point_deleted") };
     } catch (err) {
       this._message = { error: true, text: err.message || String(err) };
     }
@@ -690,7 +693,7 @@ class BleRadarPanel extends HTMLElement {
     this._render();
   }
 
-  // ------------------------------------------------------------ scheda Dispositivi
+  // ------------------------------------------------------------ Devices tab
 
   async _loadDevices() {
     try {
@@ -703,59 +706,60 @@ class BleRadarPanel extends HTMLElement {
   }
 
   _renderDevicesTab(body) {
+    const t = this._t;
     const trackers = this._config.trackers || [];
     const devices = this._devices;
     const used = new Set(trackers.map((t) => t.device_id).filter(Boolean));
     const available = (devices || []).filter((d) => !used.has(d.device_id));
-    const deviceName = (id) => (devices || []).find((d) => d.device_id === id)?.name || id || "sensori manuali";
+    const deviceName = (id) => (devices || []).find((d) => d.device_id === id)?.name || id || t("devices.manual");
     body.innerHTML = `
       <div class="card">
-        <h3>Dispositivi tracciati</h3>
-        ${trackers.length ? `<table><tr><th>Nome</th><th>Dispositivo</th><th>Sensori di distanza</th><th>Entità</th><th></th></tr>
-          ${trackers.map((t, i) => `<tr>
-            <td><input data-name="${i}" value="${escapeHtml(t.name)}"></td>
-            <td>${escapeHtml(deviceName(t.device_id))}</td>
-            <td>${t.proxy_sensors.length}</td>
-            <td class="muted">${escapeHtml(t.entity_id || "—")}</td>
-            <td><button data-remove="${i}" class="danger">Rimuovi</button></td></tr>`).join("")}</table>
-          <div class="row"><button data-action="save-names">Salva nomi</button></div>`
-        : `<div class="empty">Nessun dispositivo tracciato.</div>`}
+        <h3>${t("devices.tracked")}</h3>
+        ${trackers.length ? `<table><tr><th>${t("col.name")}</th><th>${t("col.device")}</th><th>${t("col.sensors")}</th><th>${t("col.entity")}</th><th></th></tr>
+          ${trackers.map((tr, i) => `<tr>
+            <td><input data-name="${i}" value="${escapeHtml(tr.name)}"></td>
+            <td>${escapeHtml(deviceName(tr.device_id))}</td>
+            <td>${tr.proxy_sensors.length}</td>
+            <td class="muted">${escapeHtml(tr.entity_id || "—")}</td>
+            <td><button data-remove="${i}" class="danger">${t("devices.remove")}</button></td></tr>`).join("")}</table>
+          <div class="row"><button data-action="save-names">${t("devices.save_names")}</button></div>`
+        : `<div class="empty">${t("devices.none")}</div>`}
       </div>
       <div class="card">
-        <h3>Aggiungi un dispositivo</h3>
-        ${devices === null ? `<div class="muted">Caricamento…</div>` : available.length ? `
+        <h3>${t("devices.add_title")}</h3>
+        ${devices === null ? `<div class="muted">${t("loading")}</div>` : available.length ? `
           <div class="row">
             <select id="new-device">${available.map((d) =>
-              `<option value="${d.device_id}">${escapeHtml(d.name)}${d.bermuda ? " (Bermuda)" : ""} · ${d.sensors.length} proxy</option>`).join("")}</select>
-            <input id="new-name" placeholder="Nome (es. Posizione Alessandro)">
-            <button data-action="add" class="primary">Aggiungi</button>
+              `<option value="${d.device_id}">${t("devices.option", { name: escapeHtml(d.name), bermuda: d.bermuda ? " (Bermuda)" : "", count: d.sensors.length })}</option>`).join("")}</select>
+            <input id="new-name" placeholder="${t("devices.name_placeholder")}">
+            <button data-action="add" class="primary">${t("devices.add")}</button>
           </div>
-          <p class="hint">Sono elencati i dispositivi con sensori «distance to …» (ad esempio i telefoni tracciati da Bermuda).</p>`
-        : `<div class="empty">Nessun altro dispositivo con sensori di distanza. Con Bermuda, aggiungi prima il telefono in Bermuda.</div>`}
+          <p class="hint">${t("devices.hint")}</p>`
+        : `<div class="empty">${t("devices.empty")}</div>`}
       </div>`;
 
     body.querySelectorAll("[data-remove]").forEach((btn) => btn.addEventListener("click", () => {
-      const t = trackers[Number(btn.dataset.remove)];
-      if (!window.confirm(`Smettere di tracciare «${t.name}»? Il sensore di posizione verrà rimosso.`)) return;
-      this._saveTrackers(trackers.filter((x) => x !== t), "Dispositivo rimosso");
+      const tracker = trackers[Number(btn.dataset.remove)];
+      if (!window.confirm(t("confirm.remove_tracker", { name: tracker.name }))) return;
+      this._saveTrackers(trackers.filter((x) => x !== tracker), t("msg.tracker_removed"));
     }));
     body.querySelector("[data-action=save-names]")?.addEventListener("click", () => {
-      const updated = trackers.map((t, i) => ({ ...t, name: body.querySelector(`[data-name="${i}"]`).value.trim() || t.name }));
-      this._saveTrackers(updated, "Nomi salvati");
+      const updated = trackers.map((tr, i) => ({ ...tr, name: body.querySelector(`[data-name="${i}"]`).value.trim() || tr.name }));
+      this._saveTrackers(updated, t("msg.names_saved"));
     });
     body.querySelector("[data-action=add]")?.addEventListener("click", () => {
       const deviceId = body.querySelector("#new-device").value;
       const device = available.find((d) => d.device_id === deviceId);
-      const name = body.querySelector("#new-name").value.trim() || `Posizione ${device.name}`;
-      this._saveTrackers([...trackers, { name, device_id: deviceId, sensors: [] }], `«${name}» aggiunto`);
+      const name = body.querySelector("#new-name").value.trim() || t("devices.default_name", { device: device.name });
+      this._saveTrackers([...trackers, { name, device_id: deviceId, sensors: [] }], t("msg.tracker_added", { name }));
     });
   }
 
   async _saveTrackers(trackers, okText) {
     await this._ws("save_trackers", {
-      trackers: trackers.map((t) => ({ id: t.id, name: t.name, device_id: t.device_id || null, sensors: t.sensors || [] })),
+      trackers: trackers.map((tr) => ({ id: tr.id, name: tr.name, device_id: tr.device_id || null, sensors: tr.sensors || [] })),
     }, okText);
-    // l'integrazione si ricarica: attende che i sensori siano pronti
+    // the integration reloads: wait for the sensors to be ready
     setTimeout(() => this._load(), 1500);
     this._render();
   }
@@ -775,14 +779,22 @@ function nearestEdge(polygon, [px, py]) {
   return { index: best, dist: bestDist };
 }
 
-// Riduce le planimetrie troppo grandi prima di inviarle a Home Assistant
-function prepareImage(file) {
+// Room shown in the table: the sensor state, or Home Assistant's "unknown"
+function roomState(hass, state) {
+  if (!state || state.state === "unknown" || state.state === "unavailable") {
+    return hass.localize?.(`state.default.${state?.state || "unknown"}`) || "—";
+  }
+  return state.state;
+}
+
+// Downscale large floor plans before sending them to Home Assistant
+function prepareImage(file, t) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("lettura del file non riuscita"));
+    reader.onerror = () => reject(new Error(t("image.read_error")));
     reader.onload = () => {
       const img = new Image();
-      img.onerror = () => reject(new Error("formato non riconosciuto"));
+      img.onerror = () => reject(new Error(t("image.format_error")));
       img.onload = () => {
         const ratio = Math.min(1, MAX_IMAGE_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
         const width = Math.round(img.naturalWidth * ratio);
@@ -846,7 +858,7 @@ const PANEL_STYLE = `
   .message { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; background: rgba(3,169,244,0.12); }
   .message.error { background: rgba(219,68,55,0.15); }
   .tools { margin-top: 0; }
-  /* spazio riservato: la mappa non si sposta mentre si disegna */
+  /* reserved space: the map does not move while drawing */
   #draft-actions { min-height: 40px; }
   table { width: 100%; border-collapse: collapse; margin: 8px 0; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--divider-color, #eee); }

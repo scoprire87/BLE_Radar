@@ -107,11 +107,11 @@ class MapStore:
             mime = header.split(":", 1)[1].split(";", 1)[0]
             raw = base64.b64decode(encoded, validate=True)
         except (IndexError, ValueError, binascii.Error) as err:
-            raise ValueError("Immagine non valida") from err
+            raise ValueError("Invalid image") from err
         if mime not in IMAGE_TYPES:
-            raise ValueError("Formato non supportato: usa PNG, JPEG o WEBP")
+            raise ValueError("Unsupported format: use PNG, JPEG or WEBP")
         if len(raw) > MAX_IMAGE_BYTES:
-            raise ValueError("Immagine troppo grande (massimo 8 MB)")
+            raise ValueError("Image too large (maximum 8 MB)")
 
         filename = f"{floor_id}.{IMAGE_TYPES[mime]}"
         old = self.floors.get(floor_id, {}).get("image")
@@ -169,7 +169,7 @@ class MapStore:
         if old == new:
             return
         if new in self.zones or new in self.rooms:
-            raise ValueError(f"Esiste già una stanza chiamata {new}")
+            raise ValueError(f"A room called {new} already exists")
         if old in self.zones:
             self.zones[new] = self.zones.pop(old)
         if old in self.rooms:

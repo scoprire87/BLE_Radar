@@ -17,7 +17,7 @@
                 "data": {
                     "show_panel": "Show the sidebar page",
                     "confirmation_seconds": "Room change confirmation",
-                    "unknown_timeout": "Back to “Sconosciuta” (unknown)",
+                    "unknown_timeout": "Back to unknown",
                     "smoothing": "Smooth movement"
                 },
                 "data_description": {
@@ -33,15 +33,15 @@
                             "trilateration": "Trilateration",
                             "map_scale": "Default scale (units per metre)",
                             "max_distance": "Maximum distance",
-                            "top_k": "Nearest vertices (k)",
+                            "top_k": "Nearest points (k)",
                             "min_common_proxies": "Minimum common proxies"
                         },
                         "data_description": {
                             "trilateration": "Estimate the proxy positions from vertices with coordinates and use them to refine x/y together with the fingerprint.",
                             "map_scale": "Only used for points without a floor or for floors whose scale is not set in the sidebar page.",
                             "max_distance": "Distances at or above this are ignored; an unseen proxy is treated as being at this distance.",
-                            "top_k": "Number of most similar vertices used to pick the room and compute the coordinates.",
-                            "min_common_proxies": "Proxies the current reading and a vertex must share for the vertex to be considered."
+                            "top_k": "Number of most similar recorded points used to pick the room and compute the coordinates.",
+                            "min_common_proxies": "Proxies the current reading and a recorded point must share for the point to be considered."
                         }
                     }
                 },
@@ -94,7 +94,7 @@
                 },
                 "entity_id": {
                     "name": "Position sensor",
-                    "description": "BLE Fingerprint sensor to read the distances from (only needed if you have more than one)."
+                    "description": "BLE Radar position sensor to read the distances from (only needed if you have more than one)."
                 },
                 "duration": {
                     "name": "Duration",

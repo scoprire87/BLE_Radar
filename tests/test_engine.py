@@ -80,8 +80,8 @@ def test_kalman_smooths_and_resets():
             flt_err += math.hypot(fx - 3, fy - 2)
     assert flt_err < raw_err * 0.85
     # cambio piano o lunga assenza: nessuna inerzia dal passato
-    assert kf.update((10, 10), 162.0, "Taverna") == (10, 10)
-    assert kf.update((20, 20), 1000.0, "Taverna") == (20, 20)
+    assert kf.update((10, 10), 162.0, "Basement") == (10, 10)
+    assert kf.update((20, 20), 1000.0, "Basement") == (20, 20)
 
 
 async def test_combined_engine(hass, freezer):
@@ -129,7 +129,7 @@ async def test_combined_engine(hass, freezer):
             async_fire_time_changed(hass, dt_util.utcnow())
             await hass.async_block_till_done()
         state = hass.states.get(entity)
-        assert state.attributes["method"] == "combinato"
+        assert state.attributes["method"] == "combined"
         assert state.attributes["floor"] == "Terra"
         assert state.attributes["trilateration_proxies"] >= 3
         assert 0 < state.attributes["confidence"] <= 1

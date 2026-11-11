@@ -31,8 +31,6 @@ from .const import (
     CONF_SENSORS,
     CONF_TRACKERS,
     DOMAIN,
-    LEGACY_NAME,
-    LEGACY_PROXY_SENSORS,
     MAX_DISTANCE,
     SERVICE_DELETE_ROOM,
     SERVICE_DELETE_VERTEX,
@@ -151,7 +149,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         rooms.setdefault(room, {})[vertex_id] = vertex
         await _async_save_map()
         _LOGGER.info(
-            "Salvato vertice %s in %s (X:%s, Y:%s) con %d proxy attivi",
+            "Saved point %s in %s (x=%s, y=%s) with %d proxies",
             vertex_id,
             room,
             x,
@@ -167,16 +165,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 if tracker.entity_id == entity_id:
                     return tracker
             raise ServiceValidationError(
-                f"{entity_id} non è un sensore di posizione BLE Fingerprint attivo"
+                f"{entity_id} is not an active BLE Radar position sensor"
             )
         if len(trackers) == 1:
             return trackers[0]
         if not trackers:
             raise ServiceValidationError(
-                "Nessun sensore di posizione BLE Fingerprint configurato"
+                "No BLE Radar position sensor is configured"
             )
         raise ServiceValidationError(
-            "Sono configurati più sensori di posizione: indica entity_id"
+            "Several position sensors are configured: set entity_id"
         )
 
     async def handle_save_vertex(call: ServiceCall) -> None:
@@ -222,7 +220,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         if not distances:
             raise HomeAssistantError(
-                "Nessuna distanza valida rilevata: vertice non salvato"
+                "No valid distance received: the point was not saved"
             )
 
         room: str = call.data[ATTR_ROOM]
@@ -251,23 +249,23 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         if vertex_id not in rooms.get(room, {}):
             raise ServiceValidationError(
-                f"Vertice {vertex_id} non trovato nella stanza {room}"
+                f"Point {vertex_id} not found in room {room}"
             )
 
         del rooms[room][vertex_id]
         if not rooms[room] and room not in map_store.zones:
             del rooms[room]
         await _async_save_map()
-        _LOGGER.info("Eliminato vertice %s da %s", vertex_id, room)
+        _LOGGER.info("Deleted point %s from %s", vertex_id, room)
 
     async def handle_delete_room(call: ServiceCall) -> None:
         room: str = call.data[ATTR_ROOM]
 
         if not map_store.delete_room(room):
-            raise ServiceValidationError(f"Stanza {room} non trovata nella mappa")
+            raise ServiceValidationError(f"Room {room} not found in the map")
 
         await _async_save_map()
-        _LOGGER.info("Eliminata stanza %s dalla mappa", room)
+        _LOGGER.info("Deleted room %s from the map", room)
 
     async def handle_set_proxy(call: ServiceCall) -> None:
         """Imposta (o rimuove) a mano posizione e correzione di un proxy."""
@@ -277,11 +275,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         if x is None and y is None:
             if proxy_overrides.pop(proxy, None) is None:
                 raise ServiceValidationError(
-                    f"Nessuna posizione manuale impostata per il proxy {proxy}"
+                    f"No manual position is set for proxy {proxy}"
                 )
-            _LOGGER.info("Rimossa la posizione manuale del proxy %s", proxy)
+            _LOGGER.info("Removed the manual position of proxy %s", proxy)
         elif x is None or y is None:
-            raise ServiceValidationError("Indica sia x sia y (oppure nessuno dei due)")
+            raise ServiceValidationError("Set both x and y (or neither)")
         else:
             override: dict[str, Any] = {"x": x, "y": y}
             if floor := call.data.get(ATTR_FLOOR):
@@ -289,7 +287,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             if (factor := call.data.get(ATTR_FACTOR)) is not None:
                 override["factor"] = factor
             proxy_overrides[proxy] = override
-            _LOGGER.info("Posizione manuale del proxy %s: %s", proxy, override)
+            _LOGGER.info("Manual position of proxy %s: %s", proxy, override)
 
         await _async_save_map()
 
@@ -339,7 +337,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migra le config entry delle versioni precedenti.
 
-    - versione 1: nessun dato, nome e sensori erano fissi nel codice;
+    - versione 1: nessun dato (il dispositivo si sceglie nella pagina laterale);
     - versione 2: un dispositivo per config entry (nome, dispositivo, sensori);
     - versione 3: un'unica integrazione con l'elenco dei dispositivi tracciati
       nelle opzioni, gestito dalla pagina laterale.
@@ -348,8 +346,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     data = dict(entry.data)
-    if entry.version == 1:
-        data = {CONF_NAME: LEGACY_NAME, CONF_SENSORS: list(LEGACY_PROXY_SENSORS), **data}
 
     if entry.version < 3:
         options = dict(entry.options)
@@ -361,11 +357,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             CONF_DEVICE: options.pop(CONF_DEVICE, data.get(CONF_DEVICE)),
             CONF_SENSORS: options.pop(CONF_SENSORS, data.get(CONF_SENSORS)) or [],
         }
-        options[CONF_TRACKERS] = [tracker]
+        # la versione 1 non salvava né nome né sensori: il dispositivo da
+        # tracciare si sceglie nella pagina laterale
+        options[CONF_TRACKERS] = (
+            [tracker] if tracker[CONF_DEVICE] or tracker[CONF_SENSORS] else []
+        )
         hass.config_entries.async_update_entry(
             entry, data={}, options=options, version=3, unique_id=DOMAIN
         )
-        _LOGGER.info("Config entry BLE Fingerprint migrata alla versione 3")
+        _LOGGER.info("BLE Radar config entry migrated to version 3")
 
     return True
 
@@ -423,7 +423,7 @@ def _async_watch_device_sensors(
             return
         known.add(entity.entity_id)
         _LOGGER.info(
-            "%s: nuovo sensore di distanza %s, ricarico", entry.title, entity.entity_id
+            "%s: new distance sensor %s, reloading", entry.title, entity.entity_id
         )
         hass.config_entries.async_schedule_reload(entry.entry_id)
 

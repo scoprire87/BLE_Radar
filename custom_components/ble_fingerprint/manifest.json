@@ -1,6 +1,6 @@
 {
     "domain": "ble_fingerprint",
-    "name": "BLE Fingerprint Positioning",
+    "name": "BLE Radar",
     "after_dependencies": [
         "bermuda",
         "frontend",
@@ -16,5 +16,5 @@
     "iot_class": "calculated",
     "issue_tracker": "https://github.com/scoprire87/BLE_Radar/issues",
     "requirements": [],
-    "version": "2.0.0"
+    "version": "2.1.0"
 }
