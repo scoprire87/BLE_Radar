@@ -60,13 +60,19 @@ distanze vengono campionate per la durata scelta (con gli Shelly almeno 15 secon
 salvate con le coordinate e il piano giusti. Poi passa da sola al punto successivo.
 Cliccando sulla mappa aggiungi punti liberi (ad esempio dove ti siedi di solito).
 
+![Calibrazione guidata: il punto da raggiungere è evidenziato in arancione, quelli già registrati sono verdi](img/pannello-calibrazione.png)
+
 ### 4. Mappa
 
 Mostra in tempo reale stanze, proxy e posizione dei dispositivi tracciati.
 
+![Mappa in tempo reale con le stanze disegnate, i proxy stimati e la posizione](img/pannello-mappa.png)
+
 ## Card per la dashboard
 
 La card **BLE Radar** mostra la planimetria con la posizione in tempo reale:
+
+![Card BLE Radar in una dashboard](img/card.png)
 
 ```yaml
 type: custom:ble-radar-card
