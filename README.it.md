@@ -69,9 +69,19 @@ Bluetooth**, senza passare dalle opzioni di Bermuda:
 3. **Disegna stanza**: clicca sugli angoli della stanza in ordine, dai un nome e salva.
    Con **Modifica forma** trascini gli angoli, aggiungi un angolo cliccando vicino a un
    lato e lo togli con un doppio clic.
-4. **Sposta proxy**: la posizione degli Shelly viene stimata dai punti registrati
-   (quadrati tratteggiati); se una è sbagliata trascinala nel punto giusto (diventa
-   un quadrato pieno). Cliccandola la riporti alla stima.
+4. **Sposta proxy**: sono elencati i proxy con sensori di distanza; **Posiziona …** e
+   clicca sulla planimetria dove si trova il proxy (quadrato pieno). I proxy non
+   posizionati a mano vengono stimati dai punti registrati (quadrati tratteggiati):
+   trascinane uno per correggerlo, clicca un proxy posizionato per tornare alla stima.
+
+Caricare o sostituire la planimetria mantiene stanze, punti e proxy nella stessa
+posizione. Le mappe salvate dalle versioni precedenti con stanze disegnate sul foglio
+bianco prima di caricare la planimetria (piccole, in alto a sinistra) mostrano il
+pulsante **Adattali alla planimetria**.
+
+La mappa è salvata in `.storage` di Home Assistant e le planimetrie nella cartella
+`ble_fingerprint` della configurazione, fuori dall'integrazione: aggiornamenti e
+reinstallazioni le mantengono.
 
 ### 3. Calibrazione guidata
 

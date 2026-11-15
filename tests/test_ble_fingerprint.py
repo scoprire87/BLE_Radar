@@ -427,3 +427,73 @@ async def test_removed_tracker_leaves_no_orphans(hass, hass_ws_client):
     assert [e.entity_id for e in er.async_entries_for_config_entry(ent_reg, entry.entry_id)] == ["sensor.uno"]
     assert len(dr.async_entries_for_config_entry(dev_reg, entry.entry_id)) == 1
     assert hass.states.get("sensor.due") is None
+
+
+async def test_floor_plan_keeps_drawings(hass, hass_ws_client, tmp_path):
+    """Drawings follow the plan when it is uploaded or replaced, and survive a reload."""
+    hass.config.config_dir = str(tmp_path)
+    entry = MockConfigEntry(domain=DOMAIN, version=3, title="BLE Radar", options={"trackers": []})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+    png = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 32).decode()
+
+    resp = await _ws(client, "save_floor", name="Ground floor", scale=50)
+    floor_id = resp["result"]["floor_id"]
+    resp = await _ws(client, "save_zone", name="Kitchen", floor_id=floor_id,
+                     polygon=[[100, 100], [300, 100], [300, 200]])
+    assert resp["success"]
+    resp = await _ws(client, "set_proxy", proxy="kitchen", floor_id=floor_id, x=500, y=350)
+    assert resp["success"]
+
+    # plan uploaded after drawing on the blank sheet (1000 x 700): fitted, same shape
+    resp = await _ws(client, "save_floor", floor_id=floor_id, name="Ground floor",
+                     image=png, width=2000, height=1600)
+    assert resp["success"]
+    map_store = hass.data[DOMAIN]["map"]
+    assert map_store.zones["Kitchen"]["polygon"] == [[200, 200], [600, 200], [600, 400]]
+    assert map_store.proxies["kitchen"] == {"x": 1000, "y": 700, "floor": floor_id}
+    assert map_store.floors[floor_id]["fitted"] is True
+    assert map_store.floors[floor_id]["scale"] == 100
+
+    # a new plan at half the resolution: everything follows
+    resp = await _ws(client, "save_floor", floor_id=floor_id, name="Ground floor",
+                     image=png, width=1000, height=800)
+    assert map_store.zones["Kitchen"]["polygon"] == [[100, 100], [300, 100], [300, 200]]
+    assert map_store.floors[floor_id]["scale"] == 50
+
+    # the map is kept across reloads and updates of the integration
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    resp = await _ws(client, "config")
+    config = resp["result"]
+    assert config["zones"]["Kitchen"]["polygon"] == [[100, 100], [300, 100], [300, 200]]
+    assert "kitchen" in config["known_proxies"]
+    assert config["fit_from_blank"] == {}
+
+
+async def test_fit_drawings_made_before_the_plan(hass, hass_ws_client, tmp_path):
+    """Maps saved by older versions: drawings on the blank sheet, plan added later."""
+    hass.config.config_dir = str(tmp_path)
+    entry = MockConfigEntry(domain=DOMAIN, version=3, title="BLE Radar", options={"trackers": []})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    map_store = hass.data[DOMAIN]["map"]
+    map_store.floors["f1"] = {"name": "Ground", "image": "f1.png", "width": 2400, "height": 1400}
+    map_store.zones["Kitchen"] = {"floor": "f1", "polygon": [[100, 100], [300, 100], [300, 200]]}
+    map_store.rooms["Kitchen"] = {"center": {"floor": "f1", "coords": {"x": 200, "y": 150}, "distances": {"a": 1.0}}}
+    await map_store.async_save()
+    client = await hass_ws_client(hass)
+
+    resp = await _ws(client, "config")
+    assert resp["result"]["fit_from_blank"] == {"f1": 2.0}
+    resp = await _ws(client, "fit_floor", floor_id="f1")
+    assert resp["result"] == {"factor": 2.0}
+    assert map_store.zones["Kitchen"]["polygon"] == [[200, 200], [600, 200], [600, 400]]
+    assert map_store.rooms["Kitchen"]["center"]["coords"] == {"x": 400, "y": 300}
+    resp = await _ws(client, "config")
+    assert resp["result"]["fit_from_blank"] == {}
+    resp = await _ws(client, "fit_floor", floor_id="f1")
+    assert not resp["success"]

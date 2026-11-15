@@ -224,7 +224,7 @@ export const BASE_STYLE = `
     border-radius: 8px; overflow: hidden;
   }
   .map img { width: 100%; height: auto; display: block; user-select: none; }
-  .map .blank { width: 100%; display: block; }
+  .map .blank { width: 100%; height: auto; display: block; position: static; }
   .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .empty { padding: 24px; text-align: center; color: var(--secondary-text-color); line-height: 1.5; }
 `;

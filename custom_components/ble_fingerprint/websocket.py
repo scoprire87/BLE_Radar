@@ -54,6 +54,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         ws_guided_points,
         ws_nearby,
         ws_track_bluetooth,
+        ws_fit_floor,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -95,6 +96,24 @@ def _estimated_proxies(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
     return merged
 
 
+def _known_proxies(hass: HomeAssistant, map_store: Any) -> list[str]:
+    """Every proxy with a distance sensor, placed or not."""
+    # pylint: disable-next=import-outside-toplevel
+    from .sensor import is_distance_sensor
+
+    names = {
+        proxy_key(entity.entity_id)
+        for entity in er.async_get(hass).entities.values()
+        if not entity.disabled_by and is_distance_sensor(entity)
+    }
+    for tracker in _trackers_info(hass):
+        names.update(proxy_key(sensor) for sensor in tracker["proxy_sensors"])
+    names.update(map_store.proxies)
+    for proxies in _estimated_proxies(hass).values():
+        names.update(proxies)
+    return sorted(names)
+
+
 @websocket_api.websocket_command({vol.Required("type"): "ble_fingerprint/config"})
 @callback
 def ws_get_config(
@@ -116,6 +135,13 @@ def ws_get_config(
         for room, vertices in map_store.rooms.items()
     }
     data["estimated_proxies"] = _estimated_proxies(hass)
+    data["known_proxies"] = _known_proxies(hass, map_store)
+    # floors whose drawings were made on the blank sheet before the plan
+    data["fit_from_blank"] = {
+        floor_id: factor
+        for floor_id in map_store.floors
+        if (factor := map_store.fit_from_blank(floor_id)) is not None
+    }
     data["trackers"] = _trackers_info(hass)
     data["inset_m"] = GUIDED_CORNER_INSET_M
     connection.send_result(msg["id"], data)
@@ -163,8 +189,20 @@ async def ws_save_floor(
         except ValueError as err:
             connection.send_error(msg["id"], "invalid_image", str(err))
             return
+        old_width, old_height = map_store.floor_size(floor_id)
         floor["width"] = msg.get("width")
         floor["height"] = msg.get("height")
+        floor["fitted"] = True
+        if floor_id in map_store.floors and floor["width"] and floor["height"]:
+            # keep rooms, points and proxies on the same spot of the new plan
+            if map_store.floors[floor_id].get("width"):
+                sx, sy = floor["width"] / old_width, floor["height"] / old_height
+            else:
+                # drawn on the blank sheet: same shapes, fitted to the plan
+                sx = sy = min(floor["width"] / old_width, floor["height"] / old_height)
+            map_store.floors[floor_id] = floor
+            map_store.rescale_floor(floor_id, sx, sy)
+            floor = map_store.floors[floor_id]
 
     map_store.floors[floor_id] = floor
     await map_store.async_save()
@@ -444,3 +482,23 @@ async def ws_track_bluetooth(
         connection.send_error(msg["id"], err.code, err.code)
         return
     connection.send_result(msg["id"], {"title": title})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {vol.Required("type"): "ble_fingerprint/fit_floor", vol.Required("floor_id"): str}
+)
+@websocket_api.async_response
+async def ws_fit_floor(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Enlarge drawings made on the blank sheet to the floor plan."""
+    map_store = get_map_store(hass)
+    factor = map_store.fit_from_blank(msg["floor_id"])
+    if factor is None:
+        connection.send_error(msg["id"], "not_found", "Nothing to fit on this floor")
+        return
+    map_store.rescale_floor(msg["floor_id"], factor, factor)
+    map_store.floors[msg["floor_id"]]["fitted"] = True
+    await map_store.async_save()
+    connection.send_result(msg["id"], {"factor": round(factor, 3)})

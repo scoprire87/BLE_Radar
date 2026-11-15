@@ -245,7 +245,10 @@ class BleRadarPanel extends HTMLElement {
           <button data-action="scale" class="${this._mode === "scale" ? "active" : ""}">${t("plan.set_scale")}</button>
           <span class="muted">${t("plan.scale", { value: scale })}</span>
           <button data-action="delete-floor" class="danger">${t("plan.delete_floor")}</button>
-        </div>` : `<div class="empty">${t("plan.no_floor")}</div>`}
+        </div>
+        ${this._config.fit_from_blank?.[this._floorId] ? `
+        <div class="message">${t("plan.fit_hint")}
+          <button data-action="fit">${t("plan.fit")}</button></div>` : ""}` : `<div class="empty">${t("plan.no_floor")}</div>`}
       </div>
       ${floor ? `
       <div class="row tools">
@@ -253,6 +256,7 @@ class BleRadarPanel extends HTMLElement {
         <button data-action="proxy" class="${this._mode === "proxy" ? "active" : ""}">${t("plan.move_proxy")}</button>
         <span id="mode-help" class="muted">${this._modeHelp()}</span>
       </div>
+      ${this._mode === "proxy" ? this._proxyListHtml() : ""}
       <div id="draft-actions" class="row"></div>
       ${this._mapHtml()}
       <h3>${t("plan.rooms_title")}</h3>
@@ -278,6 +282,11 @@ class BleRadarPanel extends HTMLElement {
     body.querySelector("[data-action=scale]").addEventListener("click", () => this._setMode("scale"));
     body.querySelector("[data-action=draw]").addEventListener("click", () => this._setMode("draw"));
     body.querySelector("[data-action=proxy]").addEventListener("click", () => this._setMode("proxy"));
+    body.querySelector("[data-action=fit]")?.addEventListener("click", () => this._fitFloor());
+    body.querySelectorAll("[data-place]").forEach((btn) => btn.addEventListener("click", () => {
+      this._placing = this._placing === btn.dataset.place ? null : btn.dataset.place;
+      this._render();
+    }));
     body.querySelectorAll("[data-zone-action]").forEach((btn) => btn.addEventListener("click", () =>
       this._zoneAction(btn.dataset.zoneAction, btn.dataset.zone)));
 
@@ -295,19 +304,44 @@ class BleRadarPanel extends HTMLElement {
     this._renderDraftActions();
   }
 
+  _proxyListHtml() {
+    const t = this._t;
+    const here = new Set(floorProxies(this._config, this._floorId).map((p) => p.name));
+    const floors = this._config.floors || {};
+    const known = this._config.known_proxies || [];
+    if (!known.length) return `<div class="muted">${t("plan.no_proxies")}</div>`;
+    return `<div class="row proxies-list"><span class="muted">${t("plan.proxies")}</span>
+      ${known.map((name) => {
+        if (here.has(name)) return `<span class="chip done">✓ ${escapeHtml(name)}</span>`;
+        const other = (this._config.proxies || {})[name]?.floor;
+        const where = other && other !== this._floorId && floors[other]
+          ? ` <span class="muted">(${escapeHtml(floors[other].name)})</span>` : "";
+        return `<button data-place="${escapeHtml(name)}" class="${this._placing === name ? "active" : ""}">
+          ${t("plan.place", { proxy: escapeHtml(name) })}${where}</button>`;
+      }).join("")}</div>`;
+  }
+
+  async _fitFloor() {
+    if (!window.confirm(this._t("confirm.fit"))) return;
+    await this._ws("fit_floor", { floor_id: this._floorId }, this._t("msg.fitted"));
+    await this._load();
+  }
+
   _modeHelp() {
     const t = this._t;
     switch (this._mode) {
       case "draw": return t("help.draw");
       case "scale": return t("help.scale");
       case "shape": return t("help.shape", { room: escapeHtml(this._editZone) });
-      case "proxy": return t("help.proxy");
+      case "proxy": return this._placing
+        ? t("help.place_proxy", { proxy: escapeHtml(this._placing) }) : t("help.proxy");
       default: return "";
     }
   }
 
   _setMode(mode) {
     this._mode = this._mode === mode ? null : mode;
+    this._placing = null;
     this._draft = [];
     this._editZone = null;
     this._render();
@@ -393,6 +427,11 @@ class BleRadarPanel extends HTMLElement {
       if (dist > (18 * this._size.width) / shown) return;
       this._draft.splice(index + 1, 0, point);
       this._drawOverlay();
+    } else if (this._mode === "proxy" && this._placing && !ev.target.closest?.("[data-proxy]")) {
+      const name = this._placing;
+      this._placing = null;
+      this._ws("set_proxy", { proxy: name, floor_id: this._floorId, x: point[0], y: point[1] },
+        this._t("msg.proxy_saved", { proxy: name })).then(() => this._load());
     } else if (this._mode === "proxy") {
       const g = ev.target.closest?.("[data-proxy]");
       const proxy = g && floorProxies(this._config, this._floorId).find((p) => p.name === g.dataset.proxy);
@@ -947,6 +986,9 @@ const PANEL_STYLE = `
   label.file input { display: none; }
   .muted, .hint { color: var(--secondary-text-color); font-size: 13px; }
   .small { font-size: 12px; }
+  .chip { padding: 4px 8px; border-radius: 12px; background: var(--secondary-background-color, #eee); font-size: 13px; }
+  .chip.done { color: var(--secondary-text-color); }
+  .proxies-list { flex-wrap: wrap; gap: 6px; }
   .bars { letter-spacing: -2px; color: var(--primary-color); white-space: nowrap; }
   h4 { margin: 16px 0 4px; }
   #irk { flex: 1; min-width: 220px; font-family: monospace; }

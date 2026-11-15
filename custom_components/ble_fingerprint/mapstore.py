@@ -28,6 +28,9 @@ from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN, SIGNAL_MAP_UPDATED, STORAGE_KEY, STORAGE_VERSION
 
+# Drawing area of a floor without a plan (same as the sidebar page)
+BLANK_SIZE = (1000.0, 700.0)
+
 _LOGGER = logging.getLogger(__name__)
 
 IMAGE_DIR = "ble_fingerprint"
@@ -161,6 +164,79 @@ class MapStore:
             await self.hass.async_add_executor_job(
                 lambda: self._image_path(filename).unlink(missing_ok=True)
             )
+
+    # --- geometria del piano ----------------------------------------------
+
+    def floor_size(self, floor_id: str) -> tuple[float, float]:
+        """Size of the drawing area: the floor plan, or the blank sheet."""
+        floor = self.floors.get(floor_id) or {}
+        width, height = floor.get("width"), floor.get("height")
+        if isinstance(width, (int, float)) and isinstance(height, (int, float)) and width > 0 and height > 0:
+            return float(width), float(height)
+        return BLANK_SIZE
+
+    def floor_bounds(self, floor_id: str) -> tuple[float, float] | None:
+        """Largest x and y used by rooms, points and proxies of the floor."""
+        xs: list[float] = []
+        ys: list[float] = []
+        for zone in self.zones.values():
+            if zone.get("floor") == floor_id:
+                for point in zone.get("polygon") or []:
+                    xs.append(float(point[0]))
+                    ys.append(float(point[1]))
+        for vertices in self.rooms.values():
+            for vertex in vertices.values():
+                coords = vertex.get("coords") or {}
+                if vertex.get("floor") == floor_id and coords.get("x") is not None and coords.get("y") is not None:
+                    xs.append(float(coords["x"]))
+                    ys.append(float(coords["y"]))
+        for proxy in self.proxies.values():
+            if proxy.get("floor") == floor_id and "x" in proxy and "y" in proxy:
+                xs.append(float(proxy["x"]))
+                ys.append(float(proxy["y"]))
+        return (max(xs), max(ys)) if xs else None
+
+    def rescale_floor(self, floor_id: str, sx: float, sy: float) -> None:
+        """Scale rooms, points, proxies and scale of a floor (new image size)."""
+        if sx == 1 and sy == 1:
+            return
+
+        def scaled(x: Any, y: Any) -> tuple[float, float]:
+            return round(float(x) * sx, 1), round(float(y) * sy, 1)
+
+        for zone in self.zones.values():
+            if zone.get("floor") == floor_id and zone.get("polygon"):
+                zone["polygon"] = [list(scaled(p[0], p[1])) for p in zone["polygon"]]
+        for vertices in self.rooms.values():
+            for vertex in vertices.values():
+                coords = vertex.get("coords") or {}
+                if vertex.get("floor") == floor_id and coords.get("x") is not None and coords.get("y") is not None:
+                    x, y = scaled(coords["x"], coords["y"])
+                    vertex["coords"] = {**coords, "x": x, "y": y}
+        for proxy in self.proxies.values():
+            if proxy.get("floor") == floor_id and "x" in proxy and "y" in proxy:
+                proxy["x"], proxy["y"] = scaled(proxy["x"], proxy["y"])
+        floor = self.floors.get(floor_id)
+        if floor and isinstance(floor.get("scale"), (int, float)):
+            # pixels per metre follow the drawing (geometric mean of the axes)
+            floor["scale"] = round(floor["scale"] * (sx * sy) ** 0.5, 3)
+
+    def fit_from_blank(self, floor_id: str) -> float | None:
+        """Factor that maps drawings made on the blank sheet onto the floor plan.
+
+        None when the floor has no plan, no drawings, or drawings that already
+        use the plan (they go beyond the blank sheet).
+        """
+        floor = self.floors.get(floor_id) or {}
+        # "fitted": plans uploaded since 2.2 already carry the drawings along
+        if not floor.get("image") or floor.get("fitted"):
+            return None
+        width, height = self.floor_size(floor_id)
+        bounds = self.floor_bounds(floor_id)
+        if bounds is None or bounds[0] > BLANK_SIZE[0] or bounds[1] > BLANK_SIZE[1]:
+            return None
+        factor = min(width / BLANK_SIZE[0], height / BLANK_SIZE[1])
+        return factor if factor >= 1.3 else None
 
     # --- stanze ----------------------------------------------------------
 

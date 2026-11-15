@@ -80,9 +80,19 @@ without going through Bermuda's options:
 3. **Draw room**: click the corners of the room in order, give it a name and save.
    With **Edit shape** you can drag corners, add a corner by clicking near an edge and
    remove one with a double click.
-4. **Move proxies**: proxy positions are estimated from the recorded points (dashed
-   squares). If one is wrong, drag it to the right place (it becomes a filled square);
-   click it to reset it to the estimate.
+4. **Move proxies**: the proxies with distance sensors are listed; **Place …** and
+   click on the floor plan where the proxy is (a filled square). Proxies not placed by
+   hand are estimated from the recorded points (dashed squares): drag one to correct
+   it, click a placed proxy to go back to the estimate.
+
+Uploading or replacing the floor plan keeps rooms, points and proxies on the same
+spot. Maps saved by older versions with rooms drawn on the blank sheet before the
+plan was uploaded (small, in the top-left corner) get a **Fit them to the floor
+plan** button.
+
+The map is stored in Home Assistant's `.storage` and the floor plan images in the
+`ble_fingerprint` folder of the configuration, outside the integration: updates and
+reinstalls keep them.
 
 ### 3. Guided calibration
 
