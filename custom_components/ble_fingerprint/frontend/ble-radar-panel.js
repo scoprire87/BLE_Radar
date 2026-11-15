@@ -754,11 +754,13 @@ class BleRadarPanel extends HTMLElement {
         </div>` : `<div class="muted">${t("calib.pick_room")}</div>`}
         <p class="hint">${t("calib.shared")}</p>
         ${this._config.untagged_points ? `
-        <div class="message">${t("calib.untagged", { count: this._config.untagged_points })}
-          <select id="claim-tracker">${trackers.map((tr) =>
-            `<option value="${tr.id}" ${tr.id === c.tracker ? "selected" : ""}>${escapeHtml(tr.name)}</option>`).join("")}</select>
-          <button data-c="claim">${t("calib.claim")}</button></div>` : ""}
+        <div class="message">${t("calib.untagged", { count: this._config.untagged_points })}</div>` : ""}
         ${this._calibrationOverview(zones)}
+        <div class="row">
+          <button data-c="clear-device" class="danger" ${c.busy ? "disabled" : ""}>${t("calib.clear_device", {
+            device: escapeHtml(trackers.find((tr) => tr.id === c.tracker)?.name || "") })}</button>
+          <button data-c="clear-all" class="danger" ${c.busy ? "disabled" : ""}>${t("calib.clear_all")}</button>
+        </div>
       </div>
       ${this._mapHtml()}
       <p class="hint">${t("calib.legend")}</p>`;
@@ -775,12 +777,12 @@ class BleRadarPanel extends HTMLElement {
     body.querySelector("[data-c=prev]")?.addEventListener("click", () => { c.index -= 1; this._render(); });
     body.querySelector("[data-c=next]")?.addEventListener("click", () => { c.index += 1; this._render(); });
     body.querySelector("[data-c=delete]")?.addEventListener("click", () => this._deletePoint());
-    body.querySelector("[data-c=claim]")?.addEventListener("click", async () => {
-      const tracker = body.querySelector("#claim-tracker").value;
-      await this._ws("claim_points", { tracker }, t("msg.points_claimed"));
-      this._config = await loadConfig(this._hass).catch(() => this._config);
-      if (c.room) await this._loadGuidedPoints(c.room); else this._render();
+    body.querySelector("[data-c=clear-device]")?.addEventListener("click", () => {
+      const name = trackers.find((tr) => tr.id === c.tracker)?.name || "";
+      this._clearPoints(c.tracker, t("confirm.clear_device", { device: name }));
     });
+    body.querySelector("[data-c=clear-all]")?.addEventListener("click", () =>
+      this._clearPoints(null, t("confirm.clear_all")));
     body.querySelectorAll("[data-c-room]").forEach((row) => row.addEventListener("click", () =>
       this._loadGuidedPoints(row.dataset.cRoom)));
     this._drawOverlay();
@@ -894,6 +896,15 @@ class BleRadarPanel extends HTMLElement {
       this._config = await loadConfig(this._hass).catch(() => this._config);
       this._render();
     }
+  }
+
+  async _clearPoints(tracker, question) {
+    if (!window.confirm(question)) return;
+    const c = this._calib;
+    const result = await this._ws("clear_points", tracker ? { tracker } : {});
+    this._message = { text: this._t("msg.points_cleared", { count: result.removed }) };
+    this._config = await loadConfig(this._hass).catch(() => this._config);
+    if (c.room) await this._loadGuidedPoints(c.room); else this._render();
   }
 
   async _deletePoint() {

@@ -618,10 +618,20 @@ async def test_calibration_per_device(hass, hass_ws_client):
     with pytest.raises(ServiceValidationError):
         await _call(hass, "delete_vertex", {"room": "Cucina", "vertex_id": "p0", "entity_id": tab})
 
-    # points saved before devices were stored can be assigned to one
+    # points saved by older versions (no device) are used by every device
     await _call(hass, "save_vertex", {"room": "Studio", "vertex_id": "p0", "distances": {CUC: 3.0, SAL: 3.0}, "x": 1, "y": 1})
     assert (await _ws(client, "config"))["result"]["untagged_points"] == 1
-    resp = await _ws(client, "claim_points", tracker="t1")
-    assert resp["result"] == {"claimed": 1}
-    assert rooms["Studio"]["p0"]["device"] == "t1"
-    assert (await _ws(client, "config"))["result"]["untagged_points"] == 0
+
+    # deleting the calibration of a device, then all of it: rooms and proxies stay
+    map_store = hass.data[DOMAIN]["map"]
+    map_store.proxies["cucina"] = {"x": 1, "y": 1}
+    await record(tab, "Cucina", {tab_cuc: 1.5, tab_sal: 7.5})
+    resp = await _ws(client, "clear_points", tracker="t2")
+    assert resp["result"] == {"removed": 1}
+    assert rooms["Cucina"]["p0"]["devices"] == {"t1": phone_d}
+    resp = await _ws(client, "clear_points", tracker="t1")
+    assert resp["result"] == {"removed": 1} and "Cucina" not in rooms
+    assert rooms["Studio"]["p0"]  # not recorded with a device
+    resp = await _ws(client, "clear_points")
+    assert resp["result"] == {"removed": 1} and rooms == {}
+    assert "Salotto" in map_store.zones and map_store.proxies == {"cucina": {"x": 1, "y": 1}}

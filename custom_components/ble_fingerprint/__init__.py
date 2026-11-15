@@ -271,26 +271,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         if call.data.get(ATTR_ENTITY_ID):
             # only the measurements of this device
             device = _get_tracker(call.data[ATTR_ENTITY_ID]).tracker_id
-            vertex = rooms[room][vertex_id]
-            devices = dict(vertex.get("devices") or {})
-            if device not in devices and vertex.get("device") != device:
+            if not map_store.delete_measurements(room, vertex_id, device):
                 raise ServiceValidationError(
                     f"Point {vertex_id} of {room} was not recorded with this device"
                 )
-            devices.pop(device, None)
-            vertex["devices"] = devices
-            keep = True
-            if vertex.get("device") == device:
-                if devices:
-                    # another device becomes the reference
-                    other, distances = next(iter(devices.items()))
-                    vertex["device"], vertex["distances"] = other, distances
-                else:
-                    keep = False
-            if keep:
-                await _async_save_map()
-                _LOGGER.info("Deleted the measurements of %s at %s in %s", device, vertex_id, room)
-                return
+            await _async_save_map()
+            _LOGGER.info("Deleted the measurements of %s at %s in %s", device, vertex_id, room)
+            return
 
         del rooms[room][vertex_id]
         if not rooms[room] and room not in map_store.zones:

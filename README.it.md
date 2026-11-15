@@ -100,8 +100,10 @@ registrato; un dispositivo usa le proprie dove le ha, e altrove quelle degli alt
 moltiplicate per il suo **fattore di distanza**, imparato dai punti registrati da
 entrambi (visibile nella scheda Dispositivi). Nella calibrazione un punto verde pieno è
 registrato con il dispositivo scelto, un anello verde solo con un altro. I punti salvati
-prima della 2.5 non dicono con quale dispositivo sono stati registrati: la pagina lo
-chiede una volta.
+dalle versioni precedenti non indicano il dispositivo: valgono così come sono per
+tutti. **Elimina la calibrazione di …** ed **Elimina tutte le calibrazioni** cancellano
+i punti registrati (stanze e proxy posizionati a mano restano), ad esempio per
+ricominciare scegliendo il primo dispositivo.
 
 Scegli una stanza (la tabella mostra quali sono fatte): la pagina ti indica uno alla
 volta i punti da registrare. Il **centro è necessario**; poi c'è un punto

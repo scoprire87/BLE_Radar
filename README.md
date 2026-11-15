@@ -109,8 +109,10 @@ centres). Each point keeps the measurements of every device that recorded it; a 
 uses its own where it has them, and elsewhere those of the other devices multiplied by
 its **distance factor**, learned from the points recorded by both (shown in the Devices
 tab). In the calibration page a full green point was recorded with the selected device,
-a green ring only with another one. Points saved before 2.5 don't say which device
-recorded them: the page asks once.
+a green ring only with another one. Points saved by older versions don't store the
+device: they are used by every device as they are. **Delete the calibration of …** and
+**Delete all calibrations** remove recorded points (rooms and proxies placed by hand
+stay), for example to start again choosing the first device.
 
 Choose a room (the table shows which rooms are done): the page shows the points to
 record one at a time. The **centre is required**; then there is one **optional** point

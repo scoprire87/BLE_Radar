@@ -63,7 +63,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         ws_track_bluetooth,
         ws_fit_floor,
         ws_fix_points,
-        ws_claim_points,
+        ws_clear_points,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -194,7 +194,7 @@ def ws_get_config(
     }
     data["estimated_proxies"] = _estimated_proxies(hass)
     data["known_proxies"] = _known_proxies(hass, map_store)
-    # points recorded before the device was stored with them
+    # points recorded by older versions, without the device
     data["untagged_points"] = sum(
         1
         for vertices in map_store.rooms.values()
@@ -597,24 +597,18 @@ async def ws_fix_points(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command(
-    {vol.Required("type"): "ble_fingerprint/claim_points", vol.Required("tracker"): str}
+    {
+        vol.Required("type"): "ble_fingerprint/clear_points",
+        # tracker id: only its measurements; omitted: every recorded point
+        vol.Optional("tracker"): vol.Any(None, str),
+    }
 )
 @websocket_api.async_response
-async def ws_claim_points(
+async def ws_clear_points(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
 ) -> None:
-    """Say which device recorded the points saved before devices were stored."""
-    if not any(t["id"] == msg["tracker"] for t in _trackers_info(hass)):
-        connection.send_error(msg["id"], "not_found", "Unknown tracked device")
-        return
+    """Delete the calibration (recorded points); rooms and proxies stay."""
     map_store = get_map_store(hass)
-    claimed = 0
-    for vertices in map_store.rooms.values():
-        for vertex in vertices.values():
-            if vertex.get("distances") and not recorded_by(vertex):
-                vertex["device"] = msg["tracker"]
-                vertex["devices"] = {msg["tracker"]: vertex["distances"]}
-                claimed += 1
-    if claimed:
-        await map_store.async_save()
-    connection.send_result(msg["id"], {"claimed": claimed})
+    removed = map_store.clear_points(msg.get("tracker"))
+    await map_store.async_save()
+    connection.send_result(msg["id"], {"removed": removed})
