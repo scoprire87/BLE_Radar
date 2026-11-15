@@ -10,6 +10,12 @@ const {
 
 const TABS = ["map", "plan", "calibrate", "devices"];
 const ZOOMS = [1, 1.5, 2, 3, 4];
+
+// Next zoom step above (direction 1) or below (-1) a possibly pinched zoom
+function nextZoom(zoom, direction) {
+  if (direction > 0) return ZOOMS.find((z) => z > zoom + 0.01) ?? ZOOMS[ZOOMS.length - 1];
+  return [...ZOOMS].reverse().find((z) => z < zoom - 0.01) ?? ZOOMS[0];
+}
 const MAX_IMAGE_SIDE = 2400;
 
 class BleRadarPanel extends HTMLElement {
@@ -176,31 +182,91 @@ class BleRadarPanel extends HTMLElement {
     if (this._scroll) { wrap.scrollLeft = this._scroll.left; wrap.scrollTop = this._scroll.top; }
     wrap.addEventListener("scroll", () => { this._scroll = { left: wrap.scrollLeft, top: wrap.scrollTop }; });
     this.shadowRoot.querySelectorAll("[data-zoom]").forEach((btn) => btn.addEventListener("click", () => {
-      const index = ZOOMS.indexOf(this._zoom || 1);
       const step = btn.dataset.zoom;
-      const zoom = step === "reset" ? 1 : ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, index + (step === "in" ? 1 : -1)))];
-      this._setZoom(zoom);
+      this._setZoom(step === "reset" ? 1 : nextZoom(this._zoom || 1, step === "in" ? 1 : -1));
     }));
     // ctrl + mouse wheel (or trackpad pinch) zooms around the pointer
     wrap.addEventListener("wheel", (ev) => {
       if (!ev.ctrlKey) return;
       ev.preventDefault();
-      const index = ZOOMS.indexOf(this._zoom || 1);
-      const next = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, index + (ev.deltaY < 0 ? 1 : -1)))];
-      this._setZoom(next, ev);
+      this._setZoom(nextZoom(this._zoom || 1, ev.deltaY < 0 ? 1 : -1), ev);
     }, { passive: false });
-    // on touch screens, dragging a proxy or a corner must not scroll the map
-    wrap.addEventListener("touchstart", (ev) => {
-      if ((this._mode === "proxy" || this._mode === "shape")
-        && ev.target.closest?.("[data-proxy], [data-handle]")) ev.preventDefault();
-    }, { passive: false });
+    this._bindPan(wrap);
+  }
+
+  // Drag with one finger or the mouse to move the zoomed map, pinch with two
+  // fingers to zoom. Proxies and room corners keep their own dragging.
+  _bindPan(wrap) {
+    const pointers = new Map();
+    let pan = null;
+    let pinch = null;
+    let frame = null;
+    const grabsItself = (target) => (this._mode === "proxy" || this._mode === "shape")
+      && target.closest?.("[data-proxy], [data-handle]");
+    const distance = () => {
+      const [a, b] = [...pointers.values()];
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+    const middle = () => {
+      const [a, b] = [...pointers.values()];
+      return { clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 };
+    };
+    const onMove = (ev) => {
+      if (!pointers.has(ev.pointerId)) return;
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pinch && pointers.size === 2) {
+        const zoom = Math.max(ZOOMS[0], Math.min(ZOOMS[ZOOMS.length - 1], pinch.zoom * (distance() / pinch.distance)));
+        const anchor = middle();
+        if (!frame) {
+          frame = requestAnimationFrame(() => { frame = null; this._setZoom(zoom, anchor); });
+        }
+        this._panned = Date.now();
+      } else if (pan) {
+        const dx = ev.clientX - pan.x, dy = ev.clientY - pan.y;
+        if (!pan.moving && Math.hypot(dx, dy) < 6) return;
+        pan.moving = true;
+        wrap.scrollLeft = pan.left - dx;
+        wrap.scrollTop = pan.top - dy;
+        this._scroll = { left: wrap.scrollLeft, top: wrap.scrollTop };
+        this._panned = Date.now();
+      }
+    };
+    const onUp = (ev) => {
+      pointers.delete(ev.pointerId);
+      if (pointers.size < 2) pinch = null;
+      if (!pointers.size) {
+        pan = null;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      }
+    };
+    wrap.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      if (grabsItself(ev.target)) return;
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pointers.size === 1) {
+        pan = { x: ev.clientX, y: ev.clientY, left: wrap.scrollLeft, top: wrap.scrollTop, moving: false };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
+      } else if (pointers.size === 2) {
+        pan = null;
+        pinch = { distance: distance() || 1, zoom: this._zoom || 1 };
+      }
+    });
+  }
+
+  // A click that ends a drag of the map is not a click on the map
+  _justPanned() {
+    return this._panned && Date.now() - this._panned < 400;
   }
 
   _setZoom(zoom, anchorEvent = null) {
     const wrap = this.shadowRoot.querySelector(".map-wrap");
     const map = wrap?.querySelector(".map");
     const old = this._zoom || 1;
-    if (!map || zoom === old) return;
+    if (!map || Math.abs(zoom - old) < 0.001) return;
     // keep the point under the pointer (or the centre of the view) in place
     const rect = wrap.getBoundingClientRect();
     const ax = anchorEvent ? anchorEvent.clientX - rect.left : wrap.clientWidth / 2;
@@ -478,6 +544,7 @@ class BleRadarPanel extends HTMLElement {
 
   _planClick(ev) {
     if (this._dragged) { this._dragged = false; return; }
+    if (this._justPanned()) return;
     const point = this._toMap(ev);
     if (this._mode === "draw") {
       this._draft.push(point);
@@ -741,7 +808,7 @@ class BleRadarPanel extends HTMLElement {
 
   _calibrationClick(ev) {
     const c = this._calib;
-    if (!c.room || c.busy) return;
+    if (!c.room || c.busy || this._justPanned()) return;
     const [x, y] = this._toMap(ev);
     let n = 1;
     while (c.points.some((p) => p.vertex_id === `free${n}`)) n += 1;
@@ -1061,7 +1128,8 @@ const PANEL_STYLE = `
   .small { font-size: 12px; }
   .zoom-bar { display: flex; justify-content: flex-end; gap: 4px; margin: 8px 0 4px; }
   .zoom-bar button { min-width: 44px; }
-  .map-wrap { overflow: auto; max-height: 80vh; border-radius: 8px; -webkit-overflow-scrolling: touch; }
+  .map-wrap { overflow: auto; max-height: 80vh; border-radius: 8px; touch-action: none; cursor: grab; }
+  .map-wrap:active { cursor: grabbing; }
   .map-wrap .map { border-radius: 0; min-width: 100%; }
   .chip { padding: 4px 8px; border-radius: 12px; background: var(--secondary-background-color, #eee); font-size: 13px; }
   .chip.done { color: var(--secondary-text-color); }
