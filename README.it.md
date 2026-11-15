@@ -75,9 +75,9 @@ Bluetooth**, senza passare dalle opzioni di Bermuda:
    trascinane uno per correggerlo, clicca un proxy posizionato per tornare alla stima.
 
 La mappa della pagina si ingrandisce con **−** / **+** sopra di essa (fino al
-400%, o Ctrl + rotella del mouse dal computer) e si sposta col dito o con le barre
-di scorrimento, per posizionare con precisione proxy, angoli e punti di
-calibrazione.
+400%), allargando due dita o con Ctrl + rotella del mouse, e si sposta
+trascinandola col dito o col mouse, per posizionare con precisione proxy, angoli e
+punti di calibrazione.
 
 Caricare o sostituire la planimetria mantiene stanze, punti e proxy nella stessa
 posizione. Le mappe salvate dalle versioni precedenti con stanze disegnate sul foglio
@@ -92,12 +92,18 @@ reinstallazioni le mantengono.
 
 ### 3. Calibrazione guidata
 
-Scegli dispositivo e stanza: la pagina ti indica uno alla volta i punti da registrare
-(il centro e gli angoli, a mezzo metro dai muri). Vai nel punto evidenziato con il
-telefono in mano, come lo porti di solito, resta fermo e premi **Registra**: le
-distanze vengono campionate per la durata scelta (con gli Shelly almeno 15 secondi) e
-salvate con le coordinate e il piano giusti. Poi passa da sola al punto successivo.
-Cliccando sulla mappa aggiungi punti liberi (ad esempio dove ti siedi di solito).
+Si calibra **una volta sola, con un solo dispositivo**: i punti registrati salvano la
+distanza da ogni proxy, non quale telefono l'ha misurata, quindi valgono per tutti i
+dispositivi tracciati.
+
+Scegli una stanza (la tabella mostra quali sono fatte): la pagina ti indica uno alla
+volta i punti da registrare. Il **centro è necessario**; poi c'è un punto
+**facoltativo** per ogni angolo della stanza, a mezzo metro dai muri, che migliora la
+precisione vicino ai muri e la stima della posizione dei proxy (**Salta** passa
+oltre). Vai nel punto evidenziato con il telefono in mano, come lo porti di solito,
+resta fermo e premi **Registra**: le distanze vengono campionate per la durata scelta
+(con gli Shelly almeno 15 secondi) e salvate con le coordinate e il piano giusti. La
+calibrazione è completa quando ogni stanza ha il suo centro.
 
 ![Calibrazione guidata: il punto da raggiungere è evidenziato in arancione, quelli già registrati sono verdi](img/panel-calibration.png)
 
@@ -148,6 +154,10 @@ La mappa è salvata in `.storage/ble_fingerprint_map`, le planimetrie nella cart
   - `confidence`: affidabilità della stima, da 0 a 1;
   - `method`: `fingerprint`, `trilateration` o `combined`;
   - `score`: scarto in metri dal vertice più simile (più è basso, meglio è);
+  - `status`: `ok`, oppure perché manca la posizione: `no_sensors` (il dispositivo
+    non ha sensori di distanza), `no_distances` (nessun proxy lo sente), `no_map`
+    (nessun punto registrato), `no_match` (troppo pochi proxy in comune con i punti
+    registrati). La scheda Mappa lo mostra accanto al dispositivo;
   - `proxies`: proxy validi ora; `trilateration_proxies` e `trilateration_rms`:
     proxy usati dalla trilaterazione e residuo in metri.
 

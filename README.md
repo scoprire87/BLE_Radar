@@ -85,9 +85,9 @@ without going through Bermuda's options:
    hand are estimated from the recorded points (dashed squares): drag one to correct
    it, click a placed proxy to go back to the estimate.
 
-The map of the page can be zoomed with **−** / **+** above it (up to 400%, or
-Ctrl + mouse wheel on a computer) and scrolled with a finger or the scroll bars,
-to place proxies, corners and calibration points precisely.
+The map of the page can be zoomed with **−** / **+** above it (up to 400%), by
+pinching with two fingers or with Ctrl + mouse wheel, and moved by dragging it with
+a finger or the mouse, to place proxies, corners and calibration points precisely.
 
 Uploading or replacing the floor plan keeps rooms, points and proxies on the same
 spot. Maps saved by older versions with rooms drawn on the blank sheet before the
@@ -102,13 +102,17 @@ reinstalls keep them.
 
 ### 3. Guided calibration
 
-Choose a device and a room: the page shows the points to record one at a time (the
-centre and the corners, half a metre away from the walls). Go to the highlighted point
-holding the phone the way you usually carry it, stand still and press **Record**: the
-distances are sampled for the chosen duration (15 seconds or more is recommended with
-Shelly proxies) and saved with the right coordinates and floor. The page then moves to
-the next point. Click on the map to add free points (for example where you usually
-sit).
+Calibrate **once, with one device**: the recorded points store the distance from each
+proxy, not which phone measured it, so they are used by every tracked device.
+
+Choose a room (the table shows which rooms are done): the page shows the points to
+record one at a time. The **centre is required**; then there is one **optional** point
+per corner of the room, half a metre away from the walls, which improves precision
+near the walls and the estimate of the proxy positions (**Skip** moves on). Go to the
+highlighted point holding the phone the way you usually carry it, stand still and
+press **Record**: the distances are sampled for the chosen duration (15 seconds or
+more is recommended with Shelly proxies) and saved with the right coordinates and
+floor. The calibration is complete when every room has its centre.
 
 ![Guided calibration: the point to reach is highlighted in orange, recorded points are green](img/panel-calibration.png)
 
@@ -143,6 +147,10 @@ show_rooms: true           # optional
   - `method`: `fingerprint`, `trilateration` or `combined`;
   - `score`: difference in metres from the most similar recorded point (lower is
     better);
+  - `status`: `ok`, or why there is no position: `no_sensors` (the device has no
+    distance sensors), `no_distances` (no proxy hears it), `no_map` (no recorded
+    point), `no_match` (too few proxies in common with the recorded points). The Map
+    tab shows it next to the device;
   - `proxies`: proxies currently in range; `trilateration_proxies` and
     `trilateration_rms`: proxies used by trilateration and its residual in metres.
 

@@ -268,6 +268,8 @@ class BLEFingerprintSensor(SensorEntity):
 
         self._attr_native_value = UNKNOWN_ROOM
         self._attr_extra_state_attributes = _empty_attributes()
+        if not self._proxy_sensors:
+            self._attr_extra_state_attributes["status"] = "no_sensors"
         # distanze valide attuali, per entity_id del sensore
         self._current_distances: dict[str, float] = {}
 
@@ -461,6 +463,7 @@ class BLEFingerprintSensor(SensorEntity):
         map_store = self.hass.data.get(DOMAIN, {}).get("map")
         rooms = map_store.rooms if map_store is not None else {}
         if not rooms:
+            self._async_set_status("no_map", len(current))
             return
         self._async_refresh_model()
 
@@ -474,6 +477,8 @@ class BLEFingerprintSensor(SensorEntity):
         )
         estimate = estimate_position(scored, self._top_k)
         if estimate is None:
+            # the proxies heard now are not those of any recorded point
+            self._async_set_status("no_match", len(current))
             return
 
         floor = self._room_floors.get(estimate.room)
@@ -543,6 +548,7 @@ class BLEFingerprintSensor(SensorEntity):
             "method": method,
             "score": estimate.score,
             "proxies": len(current),
+            "status": "ok",
             "trilateration_proxies": fix.proxies if fix else 0,
             "trilateration_rms": round(fix.rms, 2) if fix else None,
         }
@@ -587,6 +593,15 @@ class BLEFingerprintSensor(SensorEntity):
         self.async_write_ha_state()
 
     @callback
+    def _async_set_status(self, status: str, proxies: int) -> None:
+        """Why there is no position (shown by the sidebar page)."""
+        attrs = self._attr_extra_state_attributes or _empty_attributes()
+        if attrs.get("status") == status and attrs.get("proxies") == proxies:
+            return
+        self._attr_extra_state_attributes = {**attrs, "status": status, "proxies": proxies}
+        self.async_write_ha_state()
+
+    @callback
     def _async_set_unknown(self, _now: datetime) -> None:
         """Nessun proxy valido per unknown_timeout secondi: posizione sconosciuta."""
         self._cancel_unknown_timer = None
@@ -614,6 +629,10 @@ def _empty_attributes() -> dict[str, Any]:
         "method": None,
         "score": None,
         "proxies": 0,
+        # ok | no_sensors (the device has no distance sensor) | no_distances
+        # (no proxy hears it) | no_map (no recorded point) | no_match (no
+        # recorded point shares enough proxies)
+        "status": "no_distances",
         "trilateration_proxies": 0,
         "trilateration_rms": None,
     }
