@@ -497,3 +497,37 @@ async def test_fit_drawings_made_before_the_plan(hass, hass_ws_client, tmp_path)
     assert resp["result"]["fit_from_blank"] == {}
     resp = await _ws(client, "fit_floor", floor_id="f1")
     assert not resp["success"]
+
+
+async def test_points_outside_their_room(hass, hass_ws_client, tmp_path):
+    """Points recorded before the rooms were redrawn on the plan go back into them."""
+    hass.config.config_dir = str(tmp_path)
+    entry = MockConfigEntry(domain=DOMAIN, version=3, title="BLE Radar", options={"trackers": []})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    map_store = hass.data[DOMAIN]["map"]
+    map_store.floors["f1"] = {"name": "Ground", "image": "f1.png", "width": 2000, "height": 1000, "fitted": True}
+    map_store.zones["Kitchen"] = {"floor": "f1", "polygon": [[1000, 400], [1400, 400], [1400, 800], [1000, 800]]}
+    map_store.rooms["Kitchen"] = {
+        "p0": {"floor": "f1", "coords": {"x": 30, "y": 20}, "distances": {"a": 1.0}},
+        "p2": {"floor": "f1", "coords": {"x": 35, "y": 25}, "distances": {"a": 2.0}},
+        "free1": {"floor": "f1", "coords": {"x": 20, "y": 30}, "distances": {"a": 3.0}},
+        "p1": {"floor": "f1", "coords": {"x": 1050, "y": 450}, "distances": {"a": 4.0}},
+    }
+    await map_store.async_save()
+    client = await hass_ws_client(hass)
+
+    resp = await _ws(client, "config")
+    assert resp["result"]["misplaced_points"] == {"f1": 3}
+    guided = (await _ws(client, "guided_points", room="Kitchen"))["result"]["points"]
+    resp = await _ws(client, "fix_points", floor_id="f1")
+    assert resp["result"] == {"moved": 3}
+    kitchen = map_store.rooms["Kitchen"]
+    assert kitchen["p0"]["coords"] == {"x": guided[0]["x"], "y": guided[0]["y"]} == {"x": 1200, "y": 600}
+    assert kitchen["p2"]["coords"] == {"x": guided[2]["x"], "y": guided[2]["y"]}
+    assert kitchen["free1"]["coords"] == {"x": 1200, "y": 600}
+    assert kitchen["p1"]["coords"] == {"x": 1050, "y": 450}  # already inside
+    assert kitchen["p0"]["distances"] == {"a": 1.0}
+    resp = await _ws(client, "config")
+    assert resp["result"]["misplaced_points"] == {}

@@ -77,7 +77,9 @@ Bluetooth**, senza passare dalle opzioni di Bermuda:
 Caricare o sostituire la planimetria mantiene stanze, punti e proxy nella stessa
 posizione. Le mappe salvate dalle versioni precedenti con stanze disegnate sul foglio
 bianco prima di caricare la planimetria (piccole, in alto a sinistra) mostrano il
-pulsante **Adattali alla planimetria**.
+pulsante **Adattali alla planimetria**; i punti registrati rimasti lontani da stanze
+ridisegnate in seguito mostrano **Riportali nelle loro stanze** (i punti guidati
+tornano al loro posto, le distanze registrate restano).
 
 La mappa è salvata in `.storage` di Home Assistant e le planimetrie nella cartella
 `ble_fingerprint` della configurazione, fuori dall'integrazione: aggiornamenti e

@@ -1,6 +1,7 @@
 """Pagina nella barra laterale e card per la dashboard."""
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -24,6 +25,13 @@ FRONTEND_DIR = Path(__file__).parent / "frontend"
 PANEL_COMPONENT = "ble-radar-panel"
 
 
+def _frontend_digest() -> str:
+    sha = hashlib.sha1(usedforsecurity=False)
+    for path in sorted(FRONTEND_DIR.glob("*.js")):
+        sha.update(path.read_bytes())
+    return sha.hexdigest()[:8]
+
+
 async def async_setup_frontend(hass: HomeAssistant) -> None:
     """Pubblica i file del pannello e registra la card per le dashboard."""
     domain_data = hass.data.setdefault(DOMAIN, {})
@@ -34,7 +42,10 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
     from homeassistant.components.http import StaticPathConfig
 
     integration = await async_get_integration(hass, DOMAIN)
-    version = str(integration.version or "0")
+    # version + hash of the files: browsers and the mobile app reload every
+    # module after an update, even when the version number did not change
+    digest = await hass.async_add_executor_job(_frontend_digest)
+    version = f"{integration.version or '0'}-{digest}"
     domain_data["frontend_version"] = version
 
     await hass.http.async_register_static_paths(

@@ -1,6 +1,8 @@
 """API WebSocket per la pagina laterale e la card."""
 from __future__ import annotations
 
+import math
+import re
 import secrets
 from typing import Any
 
@@ -26,7 +28,12 @@ from .const import (
 )
 from .bluetooth_devices import TrackError, bermuda_add, nearby, private_ble_add
 from .fingerprint import proxy_key
-from .geometry import guided_points
+from .geometry import (
+    guided_points,
+    nearest_point_on_polygon,
+    point_in_polygon,
+    polygon_centroid,
+)
 from .mapstore import get_map_store
 
 BERMUDA_DOMAIN = "bermuda"
@@ -55,6 +62,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         ws_nearby,
         ws_track_bluetooth,
         ws_fit_floor,
+        ws_fix_points,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -94,6 +102,52 @@ def _estimated_proxies(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
                 if proxy not in target or data["samples"] > target[proxy]["samples"]:
                     target[proxy] = data
     return merged
+
+
+def _guided(map_store: Any, zone: dict[str, Any]) -> list[tuple[str, int, tuple[float, float]]]:
+    """Guided calibration points of a room (vertex ids p0, p1, ...)."""
+    polygon = [(float(p[0]), float(p[1])) for p in zone["polygon"]]
+    if scale := map_store.floor_scale(zone.get("floor")):
+        inset = GUIDED_CORNER_INSET_M * scale
+    else:
+        # piano senza scala: il 10% della dimensione della stanza
+        xs, ys = [p[0] for p in polygon], [p[1] for p in polygon]
+        inset = 0.1 * min(max(xs) - min(xs), max(ys) - min(ys))
+    return guided_points(polygon, inset)
+
+
+def _misplaced_points(map_store: Any, floor_id: str) -> dict[tuple[str, str], tuple[float, float]]:
+    """Recorded points far outside their room, with the position they should have.
+
+    This happens when rooms were redrawn after recording (for example on a
+    floor plan uploaded later): guided points (p0, p1, ...) go back to their
+    spot in the room, free points to its centre.
+    """
+    width, height = map_store.floor_size(floor_id)
+    tolerance = 0.05 * math.hypot(width, height)
+    result: dict[tuple[str, str], tuple[float, float]] = {}
+    for room, vertices in map_store.rooms.items():
+        zone = map_store.zones.get(room)
+        if not zone or zone.get("floor") != floor_id or len(zone.get("polygon") or []) < 3:
+            continue
+        polygon = [(float(p[0]), float(p[1])) for p in zone["polygon"]]
+        guided = _guided(map_store, zone)
+        for vertex_id, vertex in vertices.items():
+            coords = vertex.get("coords") or {}
+            if vertex.get("floor") != floor_id or coords.get("x") is None or coords.get("y") is None:
+                continue
+            point = (float(coords["x"]), float(coords["y"]))
+            if point_in_polygon(point, polygon):
+                continue
+            if nearest_point_on_polygon(point, polygon)[1] <= tolerance:
+                continue
+            match = re.fullmatch(r"p(\d+)", vertex_id)
+            if match and int(match.group(1)) < len(guided):
+                target = guided[int(match.group(1))][2]
+            else:
+                target = polygon_centroid(polygon)
+            result[(room, vertex_id)] = (round(target[0], 1), round(target[1], 1))
+    return result
 
 
 def _known_proxies(hass: HomeAssistant, map_store: Any) -> list[str]:
@@ -136,6 +190,11 @@ def ws_get_config(
     }
     data["estimated_proxies"] = _estimated_proxies(hass)
     data["known_proxies"] = _known_proxies(hass, map_store)
+    data["misplaced_points"] = {
+        floor_id: len(found)
+        for floor_id in map_store.floors
+        if (found := _misplaced_points(map_store, floor_id))
+    }
     # floors whose drawings were made on the blank sheet before the plan
     data["fit_from_blank"] = {
         floor_id: factor
@@ -424,17 +483,9 @@ def ws_guided_points(
         connection.send_error(msg["id"], "not_found", "Room not found")
         return
 
-    polygon = [(float(p[0]), float(p[1])) for p in zone["polygon"]]
-    if scale := map_store.floor_scale(zone.get("floor")):
-        inset = GUIDED_CORNER_INSET_M * scale
-    else:
-        # piano senza scala: il 10% della dimensione della stanza
-        xs, ys = [p[0] for p in polygon], [p[1] for p in polygon]
-        inset = 0.1 * min(max(xs) - min(xs), max(ys) - min(ys))
-
     recorded = map_store.rooms.get(msg["room"], {})
     points = []
-    for number, (kind, index, (x, y)) in enumerate(guided_points(polygon, inset)):
+    for number, (kind, index, (x, y)) in enumerate(_guided(map_store, zone)):
         vertex_id = f"p{number}"
         points.append(
             {
@@ -502,3 +553,22 @@ async def ws_fit_floor(
     map_store.floors[msg["floor_id"]]["fitted"] = True
     await map_store.async_save()
     connection.send_result(msg["id"], {"factor": round(factor, 3)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {vol.Required("type"): "ble_fingerprint/fix_points", vol.Required("floor_id"): str}
+)
+@websocket_api.async_response
+async def ws_fix_points(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Move recorded points far outside their room back into it."""
+    map_store = get_map_store(hass)
+    found = _misplaced_points(map_store, msg["floor_id"])
+    for (room, vertex_id), (x, y) in found.items():
+        vertex = map_store.rooms[room][vertex_id]
+        vertex["coords"] = {**(vertex.get("coords") or {}), "x": x, "y": y}
+    if found:
+        await map_store.async_save()
+    connection.send_result(msg["id"], {"moved": len(found)})
