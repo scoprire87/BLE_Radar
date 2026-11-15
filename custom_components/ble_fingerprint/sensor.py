@@ -54,10 +54,12 @@ from .const import (
 )
 from .fingerprint import (
     DISTANCE_TO_MARKER,
+    device_factor,
     estimate_position,
     normalize_distances,
     proxy_key,
     room_floors,
+    rooms_for_device,
     score_vertices,
     vertices_by_floor,
 )
@@ -263,6 +265,9 @@ class BLEFingerprintSensor(SensorEntity):
         self._zones: dict[str | None, list[tuple[str, list[tuple[float, float]]]]] = {}
         self._floor_names: dict[str, str] = {}
         self._map_version: int | None = None
+        self._rooms_view: dict[str, dict[str, Any]] = {}
+        self._own_points = 0
+        self._distance_factor = 1.0
         self._last_radii: dict[str, float] = {}
         self._filter = PositionFilter()
 
@@ -284,6 +289,18 @@ class BLEFingerprintSensor(SensorEntity):
     def current_distances(self) -> dict[str, float]:
         """Distanze valide attuali per chiave proxy (copia)."""
         return normalize_distances(self._current_distances)
+
+    @property
+    def own_points(self) -> int:
+        """Points recorded with this device."""
+        self._async_refresh_model()
+        return self._own_points
+
+    @property
+    def distance_factor(self) -> float:
+        """Correction applied to the points recorded with other devices."""
+        self._async_refresh_model()
+        return self._distance_factor
 
     @property
     def tracker_id(self) -> str:
@@ -330,6 +347,12 @@ class BLEFingerprintSensor(SensorEntity):
 
         rooms = map_store.rooms
         overrides = map_store.proxies
+        # the map seen by this device: its own measurements where it recorded
+        # the point, elsewhere the reference ones corrected by its factor
+        self._distance_factor = device_factor(rooms, self._tracker_id)
+        self._rooms_view, self._own_points = rooms_for_device(
+            rooms, self._tracker_id, self._distance_factor
+        )
         self._room_floors = room_floors(rooms)
         # una stanza disegnata appartiene al piano su cui è disegnata
         for name, zone in map_store.zones.items():
@@ -470,7 +493,7 @@ class BLEFingerprintSensor(SensorEntity):
         # --- 1. Fingerprint: stanza e coordinate dai vertici più simili ---
         scored = score_vertices(
             current,
-            rooms,
+            self._rooms_view,
             known_proxies=self._known_proxies,
             max_distance=self._max_distance,
             min_common=self._min_common,
@@ -549,6 +572,8 @@ class BLEFingerprintSensor(SensorEntity):
             "score": estimate.score,
             "proxies": len(current),
             "status": "ok",
+            "own_points": self._own_points,
+            "distance_factor": self._distance_factor,
             "trilateration_proxies": fix.proxies if fix else 0,
             "trilateration_rms": round(fix.rms, 2) if fix else None,
         }

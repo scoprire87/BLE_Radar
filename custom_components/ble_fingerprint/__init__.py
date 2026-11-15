@@ -104,6 +104,8 @@ SERVICE_SET_PROXY_SCHEMA = vol.Schema({
 SERVICE_DELETE_VERTEX_SCHEMA = vol.Schema({
     vol.Required(ATTR_ROOM): _NON_EMPTY_STRING,
     vol.Required(ATTR_VERTEX_ID): _NON_EMPTY_STRING,
+    # only the measurements of this tracked device
+    vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
 })
 
 SERVICE_DELETE_ROOM_SCHEMA = vol.Schema({
@@ -142,10 +144,23 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         x: float | None,
         y: float | None,
         floor: str | None = None,
+        device: str | None = None,
     ) -> dict[str, Any]:
-        vertex: dict[str, Any] = {"distances": distances, "coords": {"x": x, "y": y}}
+        existing = rooms.get(room, {}).get(vertex_id) or {}
+        vertex: dict[str, Any] = {**existing, "coords": {"x": x, "y": y}}
         if floor:
             vertex["floor"] = floor
+        if device is None:
+            # distances given by hand: they become the reference
+            vertex["distances"] = distances
+            vertex.pop("device", None)
+        else:
+            # each device keeps its own measurements; the first one recorded
+            # (or a new measurement by the same device) is the reference
+            vertex["devices"] = {**(existing.get("devices") or {}), device: distances}
+            if not existing.get("distances") or existing.get("device") == device:
+                vertex["distances"] = distances
+                vertex["device"] = device
         rooms.setdefault(room, {})[vertex_id] = vertex
         await _async_save_map()
         _LOGGER.info(
@@ -232,6 +247,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             call.data.get(ATTR_X),
             call.data.get(ATTR_Y),
             call.data.get(ATTR_FLOOR),
+            tracker.tracker_id,
         )
 
         if call.return_response:
@@ -251,6 +267,30 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             raise ServiceValidationError(
                 f"Point {vertex_id} not found in room {room}"
             )
+
+        if call.data.get(ATTR_ENTITY_ID):
+            # only the measurements of this device
+            device = _get_tracker(call.data[ATTR_ENTITY_ID]).tracker_id
+            vertex = rooms[room][vertex_id]
+            devices = dict(vertex.get("devices") or {})
+            if device not in devices and vertex.get("device") != device:
+                raise ServiceValidationError(
+                    f"Point {vertex_id} of {room} was not recorded with this device"
+                )
+            devices.pop(device, None)
+            vertex["devices"] = devices
+            keep = True
+            if vertex.get("device") == device:
+                if devices:
+                    # another device becomes the reference
+                    other, distances = next(iter(devices.items()))
+                    vertex["device"], vertex["distances"] = other, distances
+                else:
+                    keep = False
+            if keep:
+                await _async_save_map()
+                _LOGGER.info("Deleted the measurements of %s at %s in %s", device, vertex_id, room)
+                return
 
         del rooms[room][vertex_id]
         if not rooms[room] and room not in map_store.zones:

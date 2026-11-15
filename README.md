@@ -102,8 +102,15 @@ reinstalls keep them.
 
 ### 3. Guided calibration
 
-Calibrate **once, with one device**: the recorded points store the distance from each
-proxy, not which phone measured it, so they are used by every tracked device.
+The points recorded with one device are used by **every** tracked device. Phones
+transmit with different power, so the same spot gives different distances: to make
+another device more precise, record some points with it too (even just a few room
+centres). Each point keeps the measurements of every device that recorded it; a device
+uses its own where it has them, and elsewhere those of the other devices multiplied by
+its **distance factor**, learned from the points recorded by both (shown in the Devices
+tab). In the calibration page a full green point was recorded with the selected device,
+a green ring only with another one. Points saved before 2.5 don't say which device
+recorded them: the page asks once.
 
 Choose a room (the table shows which rooms are done): the page shows the points to
 record one at a time. The **centre is required**; then there is one **optional** point
@@ -151,6 +158,8 @@ show_rooms: true           # optional
     distance sensors), `no_distances` (no proxy hears it), `no_map` (no recorded
     point), `no_match` (too few proxies in common with the recorded points). The Map
     tab shows it next to the device;
+  - `own_points`: points recorded with this device; `distance_factor`: correction
+    applied to the points recorded with other devices;
   - `proxies`: proxies currently in range; `trilateration_proxies` and
     `trilateration_rms`: proxies used by trilateration and its residual in metres.
 
