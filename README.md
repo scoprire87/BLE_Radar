@@ -88,7 +88,9 @@ without going through Bermuda's options:
 Uploading or replacing the floor plan keeps rooms, points and proxies on the same
 spot. Maps saved by older versions with rooms drawn on the blank sheet before the
 plan was uploaded (small, in the top-left corner) get a **Fit them to the floor
-plan** button.
+plan** button; recorded points left far outside rooms that were redrawn afterwards
+get **Move them back into their rooms** (guided points return to their spot, the
+recorded distances are kept).
 
 The map is stored in Home Assistant's `.storage` and the floor plan images in the
 `ble_fingerprint` folder of the configuration, outside the integration: updates and

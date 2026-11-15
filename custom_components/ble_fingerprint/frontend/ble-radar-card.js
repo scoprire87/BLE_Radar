@@ -11,7 +11,10 @@
 // opens before the modules have been downloaded.
 let common = null;
 let i18n = null;
-const commonReady = Promise.all([import("./ble-radar-common.js"), import("./ble-radar-i18n.js")])
+const commonReady = Promise.all([
+  import(`./ble-radar-common.js${new URL(import.meta.url).search}`),
+  import(`./ble-radar-i18n.js${new URL(import.meta.url).search}`),
+])
   .then(([module, translations]) => { common = module; i18n = translations; });
 
 const CONFIG_REFRESH_MS = 5 * 60 * 1000;

@@ -1,9 +1,12 @@
 // "BLE Radar" page in the Home Assistant sidebar.
-import { pointLabel, translator } from "./ble-radar-i18n.js";
-import {
+// The shared modules are loaded with the version of this file (?v=...), so an
+// update never mixes a new page with old cached translations.
+const VERSION = new URL(import.meta.url).search;
+const { pointLabel, translator } = await import(`./ble-radar-i18n.js${VERSION}`);
+const {
   BASE_STYLE, centroid, drawMap, escapeHtml, floorProxies, floorSize, floorZones,
   forgetImage, loadConfig, loadImage, markerSize, svgEl, trackerStates,
-} from "./ble-radar-common.js";
+} = await import(`./ble-radar-common.js${VERSION}`);
 
 const TABS = ["map", "plan", "calibrate", "devices"];
 const MAX_IMAGE_SIDE = 2400;
@@ -248,7 +251,10 @@ class BleRadarPanel extends HTMLElement {
         </div>
         ${this._config.fit_from_blank?.[this._floorId] ? `
         <div class="message">${t("plan.fit_hint")}
-          <button data-action="fit">${t("plan.fit")}</button></div>` : ""}` : `<div class="empty">${t("plan.no_floor")}</div>`}
+          <button data-action="fit">${t("plan.fit")}</button></div>` : ""}
+        ${this._config.misplaced_points?.[this._floorId] ? `
+        <div class="message">${t("plan.misplaced_hint", { count: this._config.misplaced_points[this._floorId] })}
+          <button data-action="fix-points">${t("plan.fix_points")}</button></div>` : ""}` : `<div class="empty">${t("plan.no_floor")}</div>`}
       </div>
       ${floor ? `
       <div class="row tools">
@@ -283,6 +289,7 @@ class BleRadarPanel extends HTMLElement {
     body.querySelector("[data-action=draw]").addEventListener("click", () => this._setMode("draw"));
     body.querySelector("[data-action=proxy]").addEventListener("click", () => this._setMode("proxy"));
     body.querySelector("[data-action=fit]")?.addEventListener("click", () => this._fitFloor());
+    body.querySelector("[data-action=fix-points]")?.addEventListener("click", () => this._fixPoints());
     body.querySelectorAll("[data-place]").forEach((btn) => btn.addEventListener("click", () => {
       this._placing = this._placing === btn.dataset.place ? null : btn.dataset.place;
       this._render();
@@ -319,6 +326,12 @@ class BleRadarPanel extends HTMLElement {
         return `<button data-place="${escapeHtml(name)}" class="${this._placing === name ? "active" : ""}">
           ${t("plan.place", { proxy: escapeHtml(name) })}${where}</button>`;
       }).join("")}</div>`;
+  }
+
+  async _fixPoints() {
+    const result = await this._ws("fix_points", { floor_id: this._floorId });
+    this._message = { text: this._t("msg.points_fixed", { count: result.moved }) };
+    await this._load();
   }
 
   async _fitFloor() {

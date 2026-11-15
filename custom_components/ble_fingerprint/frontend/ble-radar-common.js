@@ -1,5 +1,5 @@
 // Code shared by the BLE Radar sidebar page and dashboard card.
-import { translator } from "./ble-radar-i18n.js";
+const { translator } = await import(`./ble-radar-i18n.js${new URL(import.meta.url).search}`);
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const BLANK_SIZE = { width: 1000, height: 700 };
