@@ -85,6 +85,10 @@ without going through Bermuda's options:
    hand are estimated from the recorded points (dashed squares): drag one to correct
    it, click a placed proxy to go back to the estimate.
 
+The map of the page can be zoomed with **−** / **+** above it (up to 400%, or
+Ctrl + mouse wheel on a computer) and scrolled with a finger or the scroll bars,
+to place proxies, corners and calibration points precisely.
+
 Uploading or replacing the floor plan keeps rooms, points and proxies on the same
 spot. Maps saved by older versions with rooms drawn on the blank sheet before the
 plan was uploaded (small, in the top-left corner) get a **Fit them to the floor

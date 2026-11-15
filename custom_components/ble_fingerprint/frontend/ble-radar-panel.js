@@ -9,6 +9,7 @@ const {
 } = await import(`./ble-radar-common.js${VERSION}`);
 
 const TABS = ["map", "plan", "calibrate", "devices"];
+const ZOOMS = [1, 1.5, 2, 3, 4];
 const MAX_IMAGE_SIDE = 2400;
 
 class BleRadarPanel extends HTMLElement {
@@ -124,6 +125,7 @@ class BleRadarPanel extends HTMLElement {
     else if (this._tab === "plan") this._renderPlanTab(body);
     else if (this._tab === "calibrate") this._renderCalibrateTab(body);
     else this._renderDevicesTab(body);
+    this._bindZoom();
   }
 
   _switchTab(tab) {
@@ -153,10 +155,68 @@ class BleRadarPanel extends HTMLElement {
   _mapHtml() {
     if (!this._floorId) return "";
     const { width, height } = this._size;
+    const zoom = this._zoom || 1;
     const base = this._image
       ? `<img src="${this._image}" alt="" draggable="false">`
       : `<svg class="blank" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="var(--card-background-color, #fff)"/></svg>`;
-    return `<div class="map">${base}<svg id="overlay" viewBox="0 0 ${width} ${height}"></svg></div>`;
+    return `
+      <div class="zoom-bar">
+        <button data-zoom="out" title="${this._t("zoom.out")}" ${zoom <= ZOOMS[0] ? "disabled" : ""}>−</button>
+        <button data-zoom="reset" title="${this._t("zoom.reset")}">${Math.round(zoom * 100)}%</button>
+        <button data-zoom="in" title="${this._t("zoom.in")}" ${zoom >= ZOOMS[ZOOMS.length - 1] ? "disabled" : ""}>+</button>
+      </div>
+      <div class="map-wrap"><div class="map" style="width:${zoom * 100}%">${base}<svg id="overlay" viewBox="0 0 ${width} ${height}"></svg></div></div>`;
+  }
+
+  // Zoom: the map gets wider inside a scrollable box; markers keep their
+  // on-screen size because drawMap sizes them from the displayed width.
+  _bindZoom() {
+    const wrap = this.shadowRoot.querySelector(".map-wrap");
+    if (!wrap) return;
+    if (this._scroll) { wrap.scrollLeft = this._scroll.left; wrap.scrollTop = this._scroll.top; }
+    wrap.addEventListener("scroll", () => { this._scroll = { left: wrap.scrollLeft, top: wrap.scrollTop }; });
+    this.shadowRoot.querySelectorAll("[data-zoom]").forEach((btn) => btn.addEventListener("click", () => {
+      const index = ZOOMS.indexOf(this._zoom || 1);
+      const step = btn.dataset.zoom;
+      const zoom = step === "reset" ? 1 : ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, index + (step === "in" ? 1 : -1)))];
+      this._setZoom(zoom);
+    }));
+    // ctrl + mouse wheel (or trackpad pinch) zooms around the pointer
+    wrap.addEventListener("wheel", (ev) => {
+      if (!ev.ctrlKey) return;
+      ev.preventDefault();
+      const index = ZOOMS.indexOf(this._zoom || 1);
+      const next = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, index + (ev.deltaY < 0 ? 1 : -1)))];
+      this._setZoom(next, ev);
+    }, { passive: false });
+    // on touch screens, dragging a proxy or a corner must not scroll the map
+    wrap.addEventListener("touchstart", (ev) => {
+      if ((this._mode === "proxy" || this._mode === "shape")
+        && ev.target.closest?.("[data-proxy], [data-handle]")) ev.preventDefault();
+    }, { passive: false });
+  }
+
+  _setZoom(zoom, anchorEvent = null) {
+    const wrap = this.shadowRoot.querySelector(".map-wrap");
+    const map = wrap?.querySelector(".map");
+    const old = this._zoom || 1;
+    if (!map || zoom === old) return;
+    // keep the point under the pointer (or the centre of the view) in place
+    const rect = wrap.getBoundingClientRect();
+    const ax = anchorEvent ? anchorEvent.clientX - rect.left : wrap.clientWidth / 2;
+    const ay = anchorEvent ? anchorEvent.clientY - rect.top : wrap.clientHeight / 2;
+    const fx = (wrap.scrollLeft + ax) / map.offsetWidth;
+    const fy = (wrap.scrollTop + ay) / map.offsetHeight;
+    this._zoom = zoom;
+    map.style.width = `${zoom * 100}%`;
+    wrap.scrollLeft = fx * map.offsetWidth - ax;
+    wrap.scrollTop = fy * map.offsetHeight - ay;
+    this._scroll = { left: wrap.scrollLeft, top: wrap.scrollTop };
+    const bar = this.shadowRoot.querySelector(".zoom-bar");
+    bar.querySelector("[data-zoom=reset]").textContent = `${Math.round(zoom * 100)}%`;
+    bar.querySelector("[data-zoom=out]").disabled = zoom <= ZOOMS[0];
+    bar.querySelector("[data-zoom=in]").disabled = zoom >= ZOOMS[ZOOMS.length - 1];
+    this._drawOverlay();
   }
 
   _toMap(ev) {
@@ -999,6 +1059,10 @@ const PANEL_STYLE = `
   label.file input { display: none; }
   .muted, .hint { color: var(--secondary-text-color); font-size: 13px; }
   .small { font-size: 12px; }
+  .zoom-bar { display: flex; justify-content: flex-end; gap: 4px; margin: 8px 0 4px; }
+  .zoom-bar button { min-width: 44px; }
+  .map-wrap { overflow: auto; max-height: 80vh; border-radius: 8px; -webkit-overflow-scrolling: touch; }
+  .map-wrap .map { border-radius: 0; min-width: 100%; }
   .chip { padding: 4px 8px; border-radius: 12px; background: var(--secondary-background-color, #eee); font-size: 13px; }
   .chip.done { color: var(--secondary-text-color); }
   .proxies-list { flex-wrap: wrap; gap: 6px; }

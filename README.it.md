@@ -74,6 +74,11 @@ Bluetooth**, senza passare dalle opzioni di Bermuda:
    posizionati a mano vengono stimati dai punti registrati (quadrati tratteggiati):
    trascinane uno per correggerlo, clicca un proxy posizionato per tornare alla stima.
 
+La mappa della pagina si ingrandisce con **−** / **+** sopra di essa (fino al
+400%, o Ctrl + rotella del mouse dal computer) e si sposta col dito o con le barre
+di scorrimento, per posizionare con precisione proxy, angoli e punti di
+calibrazione.
+
 Caricare o sostituire la planimetria mantiene stanze, punti e proxy nella stessa
 posizione. Le mappe salvate dalle versioni precedenti con stanze disegnate sul foglio
 bianco prima di caricare la planimetria (piccole, in alto a sinistra) mostrano il
