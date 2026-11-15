@@ -92,9 +92,18 @@ reinstallazioni le mantengono.
 
 ### 3. Calibrazione guidata
 
-Si calibra **una volta sola, con un solo dispositivo**: i punti registrati salvano la
-distanza da ogni proxy, non quale telefono l'ha misurata, quindi valgono per tutti i
-dispositivi tracciati.
+I punti registrati con un dispositivo valgono per **tutti** i dispositivi tracciati.
+I telefoni trasmettono con potenze diverse, quindi lo stesso punto dà distanze diverse:
+per rendere più preciso un altro dispositivo registra alcuni punti anche con lui (anche
+solo qualche centro). Ogni punto conserva le misure di ogni dispositivo che l'ha
+registrato; un dispositivo usa le proprie dove le ha, e altrove quelle degli altri
+moltiplicate per il suo **fattore di distanza**, imparato dai punti registrati da
+entrambi (visibile nella scheda Dispositivi). Nella calibrazione un punto verde pieno è
+registrato con il dispositivo scelto, un anello verde solo con un altro. I punti salvati
+dalle versioni precedenti non indicano il dispositivo: valgono così come sono per
+tutti. **Elimina la calibrazione di …** ed **Elimina tutte le calibrazioni** cancellano
+i punti registrati (stanze e proxy posizionati a mano restano), ad esempio per
+ricominciare scegliendo il primo dispositivo.
 
 Scegli una stanza (la tabella mostra quali sono fatte): la pagina ti indica uno alla
 volta i punti da registrare. Il **centro è necessario**; poi c'è un punto
@@ -158,6 +167,8 @@ La mappa è salvata in `.storage/ble_fingerprint_map`, le planimetrie nella cart
     non ha sensori di distanza), `no_distances` (nessun proxy lo sente), `no_map`
     (nessun punto registrato), `no_match` (troppo pochi proxy in comune con i punti
     registrati). La scheda Mappa lo mostra accanto al dispositivo;
+  - `own_points`: punti registrati con questo dispositivo; `distance_factor`:
+    correzione applicata ai punti registrati con altri dispositivi;
   - `proxies`: proxy validi ora; `trilateration_proxies` e `trilateration_rms`:
     proxy usati dalla trilaterazione e residuo in metri.
 

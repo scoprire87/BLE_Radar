@@ -753,19 +753,36 @@ class BleRadarPanel extends HTMLElement {
           </div>
         </div>` : `<div class="muted">${t("calib.pick_room")}</div>`}
         <p class="hint">${t("calib.shared")}</p>
+        ${this._config.untagged_points ? `
+        <div class="message">${t("calib.untagged", { count: this._config.untagged_points })}</div>` : ""}
         ${this._calibrationOverview(zones)}
+        <div class="row">
+          <button data-c="clear-device" class="danger" ${c.busy ? "disabled" : ""}>${t("calib.clear_device", {
+            device: escapeHtml(trackers.find((tr) => tr.id === c.tracker)?.name || "") })}</button>
+          <button data-c="clear-all" class="danger" ${c.busy ? "disabled" : ""}>${t("calib.clear_all")}</button>
+        </div>
       </div>
       ${this._mapHtml()}
       <p class="hint">${t("calib.legend")}</p>`;
 
     this._bindFloorSelect(body);
-    body.querySelector("#c-tracker").addEventListener("change", (ev) => { c.tracker = ev.target.value; this._render(); });
+    body.querySelector("#c-tracker").addEventListener("change", (ev) => {
+      c.tracker = ev.target.value;
+      // the recorded points differ per device
+      if (c.room) this._loadGuidedPoints(c.room); else this._render();
+    });
     body.querySelector("#c-room").addEventListener("change", (ev) => this._loadGuidedPoints(ev.target.value));
     body.querySelector("#c-duration").addEventListener("change", (ev) => { c.duration = Number(ev.target.value); });
     body.querySelector("[data-c=record]")?.addEventListener("click", () => this._recordPoint());
     body.querySelector("[data-c=prev]")?.addEventListener("click", () => { c.index -= 1; this._render(); });
     body.querySelector("[data-c=next]")?.addEventListener("click", () => { c.index += 1; this._render(); });
     body.querySelector("[data-c=delete]")?.addEventListener("click", () => this._deletePoint());
+    body.querySelector("[data-c=clear-device]")?.addEventListener("click", () => {
+      const name = trackers.find((tr) => tr.id === c.tracker)?.name || "";
+      this._clearPoints(c.tracker, t("confirm.clear_device", { device: name }));
+    });
+    body.querySelector("[data-c=clear-all]")?.addEventListener("click", () =>
+      this._clearPoints(null, t("confirm.clear_all")));
     body.querySelectorAll("[data-c-room]").forEach((row) => row.addEventListener("click", () =>
       this._loadGuidedPoints(row.dataset.cRoom)));
     this._drawOverlay();
@@ -777,12 +794,13 @@ class BleRadarPanel extends HTMLElement {
     c.points = [];
     c.index = 0;
     if (room) {
-      const result = await this._ws("guided_points", { room });
+      const result = await this._ws("guided_points", { room, tracker: c.tracker });
       c.points = result.points;
       // free points already recorded in this room
       for (const [id, v] of Object.entries((this._config.rooms || {})[room] || {})) {
         if (!c.points.some((p) => p.vertex_id === id) && v.coords?.x != null) {
-          c.points.push({ vertex_id: id, kind: "free", x: v.coords.x, y: v.coords.y, recorded: true });
+          const own = (v.devices || []).includes(c.tracker);
+          c.points.push({ vertex_id: id, kind: "free", x: v.coords.x, y: v.coords.y, recorded: own, shared: !own });
         }
       }
       const next = c.points.findIndex((p) => !p.recorded);
@@ -800,14 +818,15 @@ class BleRadarPanel extends HTMLElement {
         const pulse = svgEl("circle", { r: r * 2.2, fill: "none", stroke: "#ff9800", "stroke-width": r / 3 }, g);
         svgEl("animate", { attributeName: "r", values: `${r * 1.4};${r * 2.6};${r * 1.4}`, dur: "1.6s", repeatCount: "indefinite" }, pulse);
       }
+      // green: recorded with this device; green ring: only with another one
       svgEl("circle", {
         r: current ? r * 1.1 : r * 0.8,
         fill: p.recorded ? "#2e7d32" : current ? "#ff9800" : "var(--card-background-color, #fff)",
-        stroke: p.recorded ? "#fff" : "#ff9800", "stroke-width": r / 4,
+        stroke: p.recorded ? "#fff" : p.shared && !current ? "#2e7d32" : "#ff9800", "stroke-width": r / 4,
       }, g);
       const label = svgEl("text", {
         "text-anchor": "middle", "dominant-baseline": "central", "font-size": r, "font-weight": "700",
-        fill: p.recorded || current ? "#fff" : "#ff9800", "pointer-events": "none",
+        fill: p.recorded || current ? "#fff" : p.shared ? "#2e7d32" : "#ff9800", "pointer-events": "none",
       }, g);
       label.textContent = String(i + 1);
     });
@@ -816,16 +835,21 @@ class BleRadarPanel extends HTMLElement {
   // Rooms of the floor: centre (required) and corners (optional) recorded
   _calibrationOverview(zones) {
     const t = this._t;
+    const tracker = this._calib.tracker;
+    const own = (v) => Boolean(v) && (v.devices || []).includes(tracker);
     const rows = zones.map((z) => {
       const recorded = (this._config.rooms || {})[z.name] || {};
       const corners = z.polygon.length;
       let done = 0;
-      for (let i = 1; i <= corners; i++) if (recorded[`p${i}`]) done += 1;
-      const centre = Boolean(recorded.p0);
+      for (let i = 1; i <= corners; i++) if (own(recorded[`p${i}`])) done += 1;
+      const centre = own(recorded.p0)
+        ? `<span class="ok">✓</span>`
+        : recorded.p0 ? `<span class="muted">${t("calib.other_device")}</span>`
+        : `<span class="warn">${t("calib.missing")}</span>`;
       return `<tr data-c-room="${escapeHtml(z.name)}" class="clickable ${z.name === this._calib.room ? "selected" : ""}">
         <td><span class="dot" style="background:${z.color}"></span></td>
         <td>${escapeHtml(z.name)}</td>
-        <td>${centre ? `<span class="ok">✓</span>` : `<span class="warn">${t("calib.missing")}</span>`}</td>
+        <td>${centre}</td>
         <td>${done} / ${corners}</td></tr>`;
     });
     const missing = zones.filter((z) => !((this._config.rooms || {})[z.name] || {}).p0).length;
@@ -874,19 +898,35 @@ class BleRadarPanel extends HTMLElement {
     }
   }
 
+  async _clearPoints(tracker, question) {
+    if (!window.confirm(question)) return;
+    const c = this._calib;
+    const result = await this._ws("clear_points", tracker ? { tracker } : {});
+    this._message = { text: this._t("msg.points_cleared", { count: result.removed }) };
+    this._config = await loadConfig(this._hass).catch(() => this._config);
+    if (c.room) await this._loadGuidedPoints(c.room); else this._render();
+  }
+
   async _deletePoint() {
     const c = this._calib;
     const point = c.points[c.index];
     if (!point || !window.confirm(this._t("confirm.delete_point", { point: pointLabel(this._t, point) }))) return;
     try {
-      await this._service("delete_vertex", { room: c.room, vertex_id: point.vertex_id });
-      point.recorded = false;
-      if (point.kind === "free") { c.points.splice(c.index, 1); c.index = Math.max(0, c.index - 1); }
+      const tracker = (this._config.trackers || []).find((x) => x.id === c.tracker);
+      // only the measurements of the selected device
+      await this._service("delete_vertex", {
+        room: c.room, vertex_id: point.vertex_id,
+        ...(tracker?.entity_id ? { entity_id: tracker.entity_id } : {}),
+      });
       this._message = { text: this._t("msg.point_deleted") };
     } catch (err) {
       this._message = { error: true, text: err.message || String(err) };
     }
     this._config = await loadConfig(this._hass).catch(() => this._config);
+    // the point may still exist with the measurements of another device
+    const index = c.index;
+    await this._loadGuidedPoints(c.room);
+    c.index = Math.min(index, Math.max(0, c.points.length - 1));
     this._render();
   }
 
@@ -912,11 +952,14 @@ class BleRadarPanel extends HTMLElement {
     body.innerHTML = `
       <div class="card">
         <h3>${t("devices.tracked")}</h3>
-        ${trackers.length ? `<table><tr><th>${t("col.name")}</th><th>${t("col.device")}</th><th>${t("col.sensors")}</th><th>${t("col.entity")}</th><th></th></tr>
+        ${trackers.length ? `<table><tr><th>${t("col.name")}</th><th>${t("col.device")}</th><th>${t("col.sensors")}</th><th>${t("col.calibration")}</th><th>${t("col.entity")}</th><th></th></tr>
           ${trackers.map((tr, i) => `<tr>
             <td><input data-name="${i}" value="${escapeHtml(tr.name)}"></td>
             <td>${escapeHtml(deviceName(tr.device_id))}</td>
             <td>${tr.proxy_sensors.length}</td>
+            <td class="small">${tr.own_points
+              ? t("devices.calibration", { points: tr.own_points, factor: (tr.distance_factor ?? 1).toFixed(2) })
+              : t("devices.calibration_shared")}</td>
             <td class="muted">${escapeHtml(tr.entity_id || "—")}</td>
             <td><button data-remove="${i}" class="danger">${t("devices.remove")}</button></td></tr>`).join("")}</table>
           <div class="row"><button data-action="save-names">${t("devices.save_names")}</button></div>`

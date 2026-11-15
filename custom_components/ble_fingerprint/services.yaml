@@ -96,6 +96,11 @@ delete_vertex:
       example: "kitchen_1"
       selector:
         text:
+    entity_id:
+      selector:
+        entity:
+          integration: ble_fingerprint
+          domain: sensor
 
 delete_room:
   fields:

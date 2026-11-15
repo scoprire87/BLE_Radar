@@ -238,6 +238,48 @@ class MapStore:
         factor = min(width / BLANK_SIZE[0], height / BLANK_SIZE[1])
         return factor if factor >= 1.3 else None
 
+    # --- punti registrati (calibrazione) ----------------------------------
+
+    def delete_measurements(self, room: str, vertex_id: str, device: str) -> bool:
+        """Delete what `device` recorded at a point; False if it recorded nothing.
+
+        Another device becomes the reference; the point goes away when no
+        measurement is left.
+        """
+        vertex = self.rooms.get(room, {}).get(vertex_id)
+        if vertex is None:
+            return False
+        devices = dict(vertex.get("devices") or {})
+        if device not in devices and vertex.get("device") != device:
+            return False
+        devices.pop(device, None)
+        vertex["devices"] = devices
+        if vertex.get("device") == device:
+            if devices:
+                other, distances = next(iter(devices.items()))
+                vertex["device"], vertex["distances"] = other, distances
+            else:
+                del self.rooms[room][vertex_id]
+                if not self.rooms[room] and room not in self.zones:
+                    del self.rooms[room]
+        return True
+
+    def clear_points(self, device: str | None = None) -> int:
+        """Delete the recorded points (of one device only, if given).
+
+        Drawn rooms, floors and proxies placed by hand are kept.
+        """
+        if device is None:
+            removed = sum(len(vertices) for vertices in self.rooms.values())
+            self.rooms.clear()
+            return removed
+        removed = 0
+        for room in list(self.rooms):
+            for vertex_id in list(self.rooms.get(room, {})):
+                if self.delete_measurements(room, vertex_id, device):
+                    removed += 1
+        return removed
+
     # --- stanze ----------------------------------------------------------
 
     def rename_room(self, old: str, new: str) -> None:

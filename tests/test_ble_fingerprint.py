@@ -304,7 +304,7 @@ async def test_websocket_map_editing(hass, hass_ws_client, freezer, tmp_path):
     resp = await _ws(client, "config")
     config = resp["result"]
     assert set(config["zones"]) == {"Cucina", "Salotto"}
-    assert config["rooms"]["Cucina"]["p0"] == {"coords": {"x": 200.0, "y": 300.0}, "floor": floor_id, "proxies": 2}
+    assert config["rooms"]["Cucina"]["p0"] == {"coords": {"x": 200.0, "y": 300.0}, "floor": floor_id, "proxies": 2, "devices": ["t1"]}
     assert config["trackers"][0]["entity_id"] == ENTITY
 
     # correzione manuale di un proxy e ritorno alla stima
@@ -555,3 +555,83 @@ async def test_status_explains_missing_position(hass, freezer):
     })
     await _move(hass, 1.0, 5.0)
     assert hass.states.get(ENTITY).attributes["status"] == "ok"
+
+
+async def test_calibration_per_device(hass, hass_ws_client):
+    """Each device keeps its measurements; the others are corrected by its factor."""
+    tab_cuc, tab_sal = "sensor.tab_distance_to_cucina", "sensor.tab_distance_to_salotto"
+    phone, tab = "sensor.phone_position", "sensor.tab_position"
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=3, title="BLE Radar", unique_id=DOMAIN,
+        options={"trackers": [
+            {"id": "t1", "name": "Phone position", "sensors": [CUC, SAL]},
+            {"id": "t2", "name": "Tab position", "sensors": [tab_cuc, tab_sal]},
+        ]},
+    )
+    entry.add_to_hass(hass)
+    for sensor, value in ((CUC, 1.0), (SAL, 5.0), (tab_cuc, 1.5), (tab_sal, 7.5)):
+        hass.states.async_set(sensor, str(value))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    rooms = hass.data[DOMAIN]["map"].rooms
+
+    async def record(entity, room, sensors):
+        for sensor, value in sensors.items():
+            hass.states.async_set(sensor, str(value))
+        await hass.async_block_till_done()
+        await _call(hass, "record_vertex", {
+            "room": room, "vertex_id": "p0", "entity_id": entity, "x": 1, "y": 1, "duration": 0,
+        })
+
+    await record(phone, "Cucina", {CUC: 1.0, SAL: 5.0})
+    await record(phone, "Salotto", {CUC: 5.0, SAL: 1.0})
+    # the tablet measures 1.5 times farther: its own point in the kitchen
+    await record(tab, "Cucina", {tab_cuc: 1.5, tab_sal: 7.5})
+    kitchen = rooms["Cucina"]["p0"]
+    phone_d, tab_d = {"cucina": 1.0, "salotto": 5.0}, {"cucina": 1.5, "salotto": 7.5}
+    assert kitchen["device"] == "t1" and kitchen["distances"] == phone_d
+    assert kitchen["devices"] == {"t1": phone_d, "t2": tab_d}
+
+    # in the living room it uses the phone's point, corrected by its factor
+    hass.states.async_set(tab_cuc, "7.5")
+    hass.states.async_set(tab_sal, "1.5")
+    await hass.async_block_till_done()
+    attrs = hass.states.get(tab).attributes
+    assert attrs["distance_factor"] == 1.5 and attrs["own_points"] == 1
+    assert attrs["fingerprint_room"] == "Salotto" and attrs["score"] == 0
+    assert hass.states.get(phone).attributes["distance_factor"] == 1.0
+
+    client = await hass_ws_client(hass)
+    config = (await _ws(client, "config"))["result"]
+    assert config["rooms"]["Cucina"]["p0"]["devices"] == ["t1", "t2"]
+    tablet = next(t for t in config["trackers"] if t["id"] == "t2")
+    assert tablet["own_points"] == 1 and tablet["distance_factor"] == 1.5
+    hass.data[DOMAIN]["map"].zones["Salotto"] = {"floor": None, "polygon": [[0, 0], [100, 0], [100, 100]]}
+    points = (await _ws(client, "guided_points", room="Salotto", tracker="t2"))["result"]["points"]
+    assert points[0]["recorded"] is False and points[0]["shared"] is True
+
+    # deleting with a device removes only its measurements
+    await _call(hass, "delete_vertex", {"room": "Cucina", "vertex_id": "p0", "entity_id": tab})
+    assert rooms["Cucina"]["p0"]["devices"] == {"t1": phone_d}
+    await _call(hass, "delete_vertex", {"room": "Salotto", "vertex_id": "p0", "entity_id": phone})
+    assert "p0" not in rooms.get("Salotto", {})
+    with pytest.raises(ServiceValidationError):
+        await _call(hass, "delete_vertex", {"room": "Cucina", "vertex_id": "p0", "entity_id": tab})
+
+    # points saved by older versions (no device) are used by every device
+    await _call(hass, "save_vertex", {"room": "Studio", "vertex_id": "p0", "distances": {CUC: 3.0, SAL: 3.0}, "x": 1, "y": 1})
+    assert (await _ws(client, "config"))["result"]["untagged_points"] == 1
+
+    # deleting the calibration of a device, then all of it: rooms and proxies stay
+    map_store = hass.data[DOMAIN]["map"]
+    map_store.proxies["cucina"] = {"x": 1, "y": 1}
+    await record(tab, "Cucina", {tab_cuc: 1.5, tab_sal: 7.5})
+    resp = await _ws(client, "clear_points", tracker="t2")
+    assert resp["result"] == {"removed": 1}
+    assert rooms["Cucina"]["p0"]["devices"] == {"t1": phone_d}
+    resp = await _ws(client, "clear_points", tracker="t1")
+    assert resp["result"] == {"removed": 1} and "Cucina" not in rooms
+    assert rooms["Studio"]["p0"]  # not recorded with a device
+    resp = await _ws(client, "clear_points")
+    assert resp["result"] == {"removed": 1} and rooms == {}
+    assert "Salotto" in map_store.zones and map_store.proxies == {"cucina": {"x": 1, "y": 1}}

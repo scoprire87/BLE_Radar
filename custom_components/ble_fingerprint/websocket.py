@@ -27,7 +27,7 @@ from .const import (
     TRACKER_UNIQUE_ID,
 )
 from .bluetooth_devices import TrackError, bermuda_add, nearby, private_ble_add
-from .fingerprint import proxy_key
+from .fingerprint import proxy_key, recorded_by
 from .geometry import (
     guided_points,
     nearest_point_on_polygon,
@@ -63,6 +63,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         ws_track_bluetooth,
         ws_fit_floor,
         ws_fix_points,
+        ws_clear_points,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -86,6 +87,8 @@ def _trackers_info(hass: HomeAssistant) -> list[dict[str, Any]]:
                     "sensors": tracker.get(CONF_SENSORS) or [],
                     "entity_id": sensor.entity_id if sensor else None,
                     "proxy_sensors": sensor.proxy_sensors if sensor else [],
+                    "own_points": sensor.own_points if sensor else 0,
+                    "distance_factor": sensor.distance_factor if sensor else 1.0,
                 }
             )
     return result
@@ -183,6 +186,7 @@ def ws_get_config(
                 "coords": vertex.get("coords") or {},
                 "floor": vertex.get("floor"),
                 "proxies": len(vertex.get("distances") or {}),
+                "devices": sorted(recorded_by(vertex)),
             }
             for vertex_id, vertex in vertices.items()
         }
@@ -190,6 +194,13 @@ def ws_get_config(
     }
     data["estimated_proxies"] = _estimated_proxies(hass)
     data["known_proxies"] = _known_proxies(hass, map_store)
+    # points recorded by older versions, without the device
+    data["untagged_points"] = sum(
+        1
+        for vertices in map_store.rooms.values()
+        for vertex in vertices.values()
+        if vertex.get("distances") and not recorded_by(vertex)
+    )
     data["misplaced_points"] = {
         floor_id: len(found)
         for floor_id in map_store.floors
@@ -470,7 +481,12 @@ def ws_save_trackers(
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "ble_fingerprint/guided_points", vol.Required("room"): str}
+    {
+        vol.Required("type"): "ble_fingerprint/guided_points",
+        vol.Required("room"): str,
+        # tracker id: "recorded" refers to the points recorded with it
+        vol.Optional("tracker"): vol.Any(None, str),
+    }
 )
 @callback
 def ws_guided_points(
@@ -487,6 +503,9 @@ def ws_guided_points(
     points = []
     for number, (kind, index, (x, y)) in enumerate(_guided(map_store, zone)):
         vertex_id = f"p{number}"
+        vertex = recorded.get(vertex_id)
+        tracker = msg.get("tracker")
+        own = vertex is not None and (tracker is None or tracker in recorded_by(vertex))
         points.append(
             {
                 "vertex_id": vertex_id,
@@ -494,7 +513,9 @@ def ws_guided_points(
                 "index": index,
                 "x": round(x, 1),
                 "y": round(y, 1),
-                "recorded": vertex_id in recorded,
+                "recorded": own,
+                # recorded with another device only: used with its correction
+                "shared": vertex is not None and not own,
             }
         )
     connection.send_result(msg["id"], {"floor_id": zone.get("floor"), "points": points})
@@ -572,3 +593,22 @@ async def ws_fix_points(
     if found:
         await map_store.async_save()
     connection.send_result(msg["id"], {"moved": len(found)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ble_fingerprint/clear_points",
+        # tracker id: only its measurements; omitted: every recorded point
+        vol.Optional("tracker"): vol.Any(None, str),
+    }
+)
+@websocket_api.async_response
+async def ws_clear_points(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Delete the calibration (recorded points); rooms and proxies stay."""
+    map_store = get_map_store(hass)
+    removed = map_store.clear_points(msg.get("tracker"))
+    await map_store.async_save()
+    connection.send_result(msg["id"], {"removed": removed})

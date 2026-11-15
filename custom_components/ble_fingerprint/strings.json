@@ -125,6 +125,10 @@
                 "vertex_id": {
                     "name": "Vertex ID",
                     "description": "Identifier of the vertex to delete."
+                },
+                "entity_id": {
+                    "name": "Position sensor",
+                    "description": "Delete only the measurements recorded with this device (empty: the whole point)."
                 }
             }
         },

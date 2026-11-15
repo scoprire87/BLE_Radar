@@ -125,6 +125,10 @@
                 "vertex_id": {
                     "name": "ID vertice",
                     "description": "Identificativo del vertice da eliminare."
+                },
+                "entity_id": {
+                    "name": "Sensore di posizione",
+                    "description": "Elimina solo le misure registrate con questo dispositivo (vuoto: tutto il punto)."
                 }
             }
         },

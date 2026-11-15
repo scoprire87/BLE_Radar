@@ -196,3 +196,87 @@ def vertices_by_floor(
                     (x / factor, y / factor, distances)
                 )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Calibration per device
+# ---------------------------------------------------------------------------
+#
+# A point keeps the distances measured by the device that recorded it first
+# ("distances", "device") and, under "devices", those measured by every
+# device that recorded it. Phones transmit with different power, so the same
+# spot gives different distances: a device uses its own measurements where it
+# has them, and elsewhere the reference ones multiplied by its distance
+# factor, learned from the points recorded by both.
+
+FACTOR_LIMITS = (0.33, 3.0)
+
+
+def recorded_by(data: dict[str, Any]) -> set[str]:
+    """Devices (tracker ids) that recorded a point."""
+    devices = set((data.get("devices") or {}).keys())
+    if data.get("device"):
+        devices.add(str(data["device"]))
+    return devices
+
+
+def own_distances(data: dict[str, Any], device: str | None) -> dict[str, float] | None:
+    """Distances measured at a point by `device`, if it recorded it."""
+    if device is None:
+        return None
+    own = (data.get("devices") or {}).get(device)
+    if own is None and data.get("device") == device:
+        own = data.get("distances")
+    return own
+
+
+def device_factor(rooms: dict[str, dict[str, Any]], device: str | None) -> float:
+    """How much farther (>1) or closer (<1) `device` measures than the reference.
+
+    Median ratio over the proxies of the points recorded both by `device` and,
+    as reference, by another device. 1.0 when there is nothing to compare.
+    """
+    if device is None:
+        return 1.0
+    ratios: list[float] = []
+    for vertices in rooms.values():
+        for data in vertices.values():
+            if data.get("device") == device:
+                continue
+            own = own_distances(data, device)
+            reference = data.get("distances") or {}
+            if not own:
+                continue
+            own_n = normalize_distances({k: float(v) for k, v in own.items()})
+            ref_n = normalize_distances({k: float(v) for k, v in reference.items()})
+            for proxy in own_n.keys() & ref_n.keys():
+                if own_n[proxy] > 0.2 and ref_n[proxy] > 0.2:
+                    ratios.append(own_n[proxy] / ref_n[proxy])
+    if not ratios:
+        return 1.0
+    ratios.sort()
+    middle = len(ratios) // 2
+    median = ratios[middle] if len(ratios) % 2 else (ratios[middle - 1] + ratios[middle]) / 2
+    return round(min(max(median, FACTOR_LIMITS[0]), FACTOR_LIMITS[1]), 3)
+
+
+def rooms_for_device(
+    rooms: dict[str, dict[str, Any]], device: str | None, factor: float
+) -> tuple[dict[str, dict[str, Any]], int]:
+    """The map as seen by `device` and the number of points it recorded itself."""
+    view: dict[str, dict[str, Any]] = {}
+    own_points = 0
+    for room, vertices in rooms.items():
+        for vertex_id, data in vertices.items():
+            own = own_distances(data, device)
+            if own is not None:
+                own_points += 1
+                distances = own
+            else:
+                distances = {
+                    k: float(v) * factor
+                    for k, v in (data.get("distances") or {}).items()
+                    if isinstance(v, (int, float))
+                }
+            view.setdefault(room, {})[vertex_id] = {**data, "distances": distances}
+    return view, own_points
