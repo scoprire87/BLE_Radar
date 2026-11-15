@@ -531,3 +531,27 @@ async def test_points_outside_their_room(hass, hass_ws_client, tmp_path):
     assert kitchen["p0"]["distances"] == {"a": 1.0}
     resp = await _ws(client, "config")
     assert resp["result"]["misplaced_points"] == {}
+
+
+async def test_status_explains_missing_position(hass, freezer):
+    """The position sensor says why it has no position."""
+    await _move(hass, 1.0, 5.0)
+    await _setup_legacy(hass)
+    # no recorded point yet
+    assert hass.states.get(ENTITY).attributes["status"] == "no_map"
+    assert hass.states.get(ENTITY).attributes["proxies"] == 2
+
+    # points recorded only with a proxy this device does not hear
+    await _call(hass, "save_vertex", {
+        "room": "Studio", "vertex_id": "p0",
+        "distances": {"sensor.other_distance_to_garage": 1.0}, "x": 1, "y": 1,
+    })
+    await _move(hass, 1.2, 5.1)
+    assert hass.states.get(ENTITY).attributes["status"] == "no_match"
+
+    # a point with its proxies: position found
+    await _call(hass, "save_vertex", {
+        "room": "Cucina", "vertex_id": "p0", "distances": {CUC: 1.0, SAL: 5.0}, "x": 1, "y": 1,
+    })
+    await _move(hass, 1.0, 5.0)
+    assert hass.states.get(ENTITY).attributes["status"] == "ok"

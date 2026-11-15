@@ -344,7 +344,8 @@ class BleRadarPanel extends HTMLElement {
       ${trackers.map((tr) => {
         const a = tr.state?.attributes || {};
         return `<tr><td><span class="dot" style="background:${tr.color}"></span></td>
-          <td>${escapeHtml(tr.name)}</td><td>${escapeHtml(roomState(this._hass, tr.state))}</td>
+          <td>${escapeHtml(tr.name)}</td><td>${escapeHtml(roomState(this._hass, tr.state))}
+            ${a.status && a.status !== "ok" ? `<div class="muted small">${t(`status.${a.status}`, { proxies: a.proxies ?? 0 })}</div>` : ""}</td>
           <td>${escapeHtml(a.floor_name ?? "—")}</td>
           <td>${a.confidence != null ? Math.round(a.confidence * 100) + "%" : "—"}</td>
           <td>${a.method ? escapeHtml(t(`method.${a.method}`)) : "—"}</td></tr>`;
@@ -723,7 +724,8 @@ class BleRadarPanel extends HTMLElement {
     if (!zones.some((z) => z.name === c.room)) { c.room = null; c.points = []; }
 
     const point = c.points[c.index];
-    const done = c.points.filter((p) => p.recorded).length;
+    const centre = c.points.find((p) => p.kind === "center");
+    const corners = c.points.filter((p) => p.kind === "corner");
     body.innerHTML = `
       <div class="card">
         <div class="row">
@@ -745,9 +747,13 @@ class BleRadarPanel extends HTMLElement {
             <button data-c="prev" ${c.busy || c.index === 0 ? "disabled" : ""}>${t("calib.back")}</button>
             <button data-c="next" ${c.busy || c.index >= c.points.length - 1 ? "disabled" : ""}>${t("calib.skip")}</button>
             ${point?.recorded ? `<button data-c="delete" class="danger" ${c.busy ? "disabled" : ""}>${t("calib.delete_point")}</button>` : ""}
-            <span class="muted">${t("calib.progress", { done, total: c.points.length })}</span>
+            <span class="muted">${t("calib.progress", {
+              centre: centre?.recorded ? "✓" : "—",
+              done: corners.filter((p) => p.recorded).length, total: corners.length })}</span>
           </div>
         </div>` : `<div class="muted">${t("calib.pick_room")}</div>`}
+        <p class="hint">${t("calib.shared")}</p>
+        ${this._calibrationOverview(zones)}
       </div>
       ${this._mapHtml()}
       <p class="hint">${t("calib.legend")}</p>`;
@@ -760,7 +766,8 @@ class BleRadarPanel extends HTMLElement {
     body.querySelector("[data-c=prev]")?.addEventListener("click", () => { c.index -= 1; this._render(); });
     body.querySelector("[data-c=next]")?.addEventListener("click", () => { c.index += 1; this._render(); });
     body.querySelector("[data-c=delete]")?.addEventListener("click", () => this._deletePoint());
-    this.shadowRoot.getElementById("overlay").addEventListener("click", (ev) => this._calibrationClick(ev));
+    body.querySelectorAll("[data-c-room]").forEach((row) => row.addEventListener("click", () =>
+      this._loadGuidedPoints(row.dataset.cRoom)));
     this._drawOverlay();
   }
 
@@ -806,15 +813,25 @@ class BleRadarPanel extends HTMLElement {
     });
   }
 
-  _calibrationClick(ev) {
-    const c = this._calib;
-    if (!c.room || c.busy || this._justPanned()) return;
-    const [x, y] = this._toMap(ev);
-    let n = 1;
-    while (c.points.some((p) => p.vertex_id === `free${n}`)) n += 1;
-    c.points.push({ vertex_id: `free${n}`, kind: "free", x, y, recorded: false });
-    c.index = c.points.length - 1;
-    this._render();
+  // Rooms of the floor: centre (required) and corners (optional) recorded
+  _calibrationOverview(zones) {
+    const t = this._t;
+    const rows = zones.map((z) => {
+      const recorded = (this._config.rooms || {})[z.name] || {};
+      const corners = z.polygon.length;
+      let done = 0;
+      for (let i = 1; i <= corners; i++) if (recorded[`p${i}`]) done += 1;
+      const centre = Boolean(recorded.p0);
+      return `<tr data-c-room="${escapeHtml(z.name)}" class="clickable ${z.name === this._calib.room ? "selected" : ""}">
+        <td><span class="dot" style="background:${z.color}"></span></td>
+        <td>${escapeHtml(z.name)}</td>
+        <td>${centre ? `<span class="ok">✓</span>` : `<span class="warn">${t("calib.missing")}</span>`}</td>
+        <td>${done} / ${corners}</td></tr>`;
+    });
+    const missing = zones.filter((z) => !((this._config.rooms || {})[z.name] || {}).p0).length;
+    return `<table class="overview"><tr><th></th><th>${t("col.room")}</th><th>${t("calib.col_centre")}</th><th>${t("calib.col_corners")}</th></tr>
+      ${rows.join("")}</table>
+      <p class="hint">${missing ? t("calib.rooms_missing", { count: missing }) : t("calib.all_done")}</p>`;
   }
 
   async _recordPoint() {
@@ -843,6 +860,7 @@ class BleRadarPanel extends HTMLElement {
       point.recorded = true;
       const proxies = Object.keys(response?.distances || {}).length;
       this._message = { text: this._t("msg.point_recorded", { point: pointLabel(this._t, point), count: proxies }) };
+      if (point.kind === "center") this._message.text += this._t("msg.centre_done");
       const next = c.points.findIndex((p, i) => i > c.index && !p.recorded);
       if (next >= 0) c.index = next;
       else this._message.text += c.points.every((p) => p.recorded) ? this._t("msg.room_done") : "";
@@ -1126,6 +1144,10 @@ const PANEL_STYLE = `
   label.file input { display: none; }
   .muted, .hint { color: var(--secondary-text-color); font-size: 13px; }
   .small { font-size: 12px; }
+  tr.clickable { cursor: pointer; }
+  tr.selected td { background: var(--secondary-background-color, #eee); }
+  .warn { color: var(--warning-color, #f57c00); }
+  table.overview { margin-top: 8px; }
   .zoom-bar { display: flex; justify-content: flex-end; gap: 4px; margin: 8px 0 4px; }
   .zoom-bar button { min-width: 44px; }
   .map-wrap { overflow: auto; max-height: 80vh; border-radius: 8px; touch-action: none; cursor: grab; }
