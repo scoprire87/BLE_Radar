@@ -3,8 +3,10 @@
     "name": "BLE Radar",
     "after_dependencies": [
         "bermuda",
+        "bluetooth",
         "frontend",
         "http",
+        "private_ble_device",
         "websocket_api"
     ],
     "codeowners": [
@@ -16,5 +18,5 @@
     "iot_class": "calculated",
     "issue_tracker": "https://github.com/scoprire87/BLE_Radar/issues",
     "requirements": [],
-    "version": "2.1.0"
+    "version": "2.2.0"
 }

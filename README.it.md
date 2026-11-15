@@ -40,6 +40,26 @@ per primi quelli di [Bermuda](https://github.com/agittins/bermuda). Per ognuno n
 sensore di posizione. Quando Bermuda crea un nuovo sensore di distanza (ad esempio
 perché hai aggiunto uno Shelly) l'integrazione lo include da sola.
 
+Un dispositivo non ancora tracciato da Bermuda si aggiunge da **Trova dispositivi
+Bluetooth**, senza passare dalle opzioni di Bermuda:
+
+- **Cerca dispositivi vicini** elenca ciò che sentono i proxy, dal più vicino:
+  avvicina il dispositivo a un proxy. **Traccia** lo aggiunge a Bermuda; dopo
+  qualche secondo compare in *Aggiungi un dispositivo*.
+  - **iBeacon**: un identificativo fisso, qualunque MAC usi. **Telefoni Android**:
+    attiva il sensore *BLE Transmitter* dell'app Home Assistant (Impostazioni → App
+    companion → Gestisci sensori) e il telefono compare qui, senza IRK.
+  - **Indirizzo fisso**: tag, orologi, braccialetti e auricolari che mantengono il
+    MAC. Gli auricolari di solito sono visibili solo quando *non* sono connessi al
+    telefono (custodia aperta, appena estratti): mentre suonano usano il Bluetooth
+    classico, che i proxy non sentono. Prova la ricerca con gli auricolari in uso
+    per verificare i tuoi.
+- **Telefoni con indirizzo privato** (iPhone, Android senza il trasmettitore
+  dell'app) cambiano MAC ogni pochi minuti e vengono solo contati. Incolla
+  l'**IRK** del telefono: BLE Radar lo aggiunge a Private BLE Device, che Bermuda
+  traccia da solo. L'IRK non si legge via radio: viene da un dispositivo associato
+  al telefono (ad esempio il Portachiavi di un Mac con lo stesso iCloud, o un ESP32).
+
 ### 2. Planimetria e stanze
 
 1. **Nuovo piano**: dai un nome (es. «Piano terra», «Primo piano») e carica la planimetria

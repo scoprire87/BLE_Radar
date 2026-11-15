@@ -736,7 +736,9 @@ class BleRadarPanel extends HTMLElement {
           </div>
           <p class="hint">${t("devices.hint")}</p>`
         : `<div class="empty">${t("devices.empty")}</div>`}
-      </div>`;
+      </div>
+      ${this._renderBluetoothCard()}`;
+    this._bindBluetoothCard(body);
 
     body.querySelectorAll("[data-remove]").forEach((btn) => btn.addEventListener("click", () => {
       const tracker = trackers[Number(btn.dataset.remove)];
@@ -755,6 +757,89 @@ class BleRadarPanel extends HTMLElement {
     });
   }
 
+  // ------------------------------------------------------------ Find Bluetooth devices
+
+  _renderBluetoothCard() {
+    const t = this._t;
+    const scan = this._scan;
+    let list = "";
+    if (scan?.busy) {
+      list = `<div class="muted">${t("bt.scanning")}</div>`;
+    } else if (scan && !scan.result.bluetooth) {
+      list = `<div class="empty">${t("bt.no_bluetooth")}</div>`;
+    } else if (scan) {
+      const r = scan.result;
+      list = `
+        ${!r.bermuda ? `<div class="message error">${t("bt.no_bermuda")}</div>` : ""}
+        ${r.devices.length ? `<table><tr><th>${t("col.name")}</th><th>${t("bt.type")}</th><th>${t("bt.signal")}</th><th></th></tr>
+          ${r.devices.map((d, i) => `<tr>
+            <td>${escapeHtml(d.name)}<div class="muted small">${escapeHtml(d.detail)}</div></td>
+            <td>${t(`bt.kind.${d.kind}`)}</td>
+            <td title="${d.rssi} dBm">${signalBars(d.rssi)}</td>
+            <td>${d.tracked ? `<span class="muted">${t("bt.tracked")}</span>`
+              : `<button data-track="${i}" ${r.bermuda ? "" : "disabled"}>${t("bt.track")}</button>`}</td></tr>`).join("")}</table>`
+          : `<div class="empty">${t("bt.none")}</div>`}
+        ${r.private ? `<p class="hint">${t("bt.private", { count: r.private })}</p>` : ""}`;
+    }
+    return `
+      <div class="card">
+        <h3>${t("bt.title")}</h3>
+        <p class="hint">${t("bt.intro")}</p>
+        <div class="row"><button data-action="scan" class="primary">${t(scan ? "bt.rescan" : "bt.scan")}</button></div>
+        ${list}
+        <h4>${t("bt.irk_title")}</h4>
+        <p class="hint">${t("bt.irk_hint")}</p>
+        <div class="row">
+          <input id="irk" placeholder="${t("bt.irk_placeholder")}" autocomplete="off" spellcheck="false">
+          <button data-action="add-irk">${t("bt.irk_add")}</button>
+        </div>
+      </div>`;
+  }
+
+  _bindBluetoothCard(body) {
+    body.querySelector("[data-action=scan]")?.addEventListener("click", () => this._scanBluetooth());
+    body.querySelectorAll("[data-track]").forEach((btn) => btn.addEventListener("click", () => {
+      const device = this._scan.result.devices[Number(btn.dataset.track)];
+      this._trackBluetooth(device.kind, device.id, device.name);
+    }));
+    body.querySelector("[data-action=add-irk]")?.addEventListener("click", () => {
+      const irk = body.querySelector("#irk").value.trim();
+      if (irk) this._trackBluetooth("irk", irk, null);
+    });
+  }
+
+  async _scanBluetooth() {
+    this._scan = { busy: true, result: null };
+    this._render();
+    try {
+      this._scan = { busy: false, result: await this._ws("nearby") };
+    } catch (_err) {
+      this._scan = null;
+    }
+    this._render();
+  }
+
+  async _trackBluetooth(kind, id, name) {
+    const t = this._t;
+    try {
+      const result = await this._hass.connection.sendMessagePromise({ type: "ble_fingerprint/track_bluetooth", kind, device: id });
+      this._message = { text: t("bt.added", { name: name || result.title }) };
+    } catch (err) {
+      const code = err.code || "unknown";
+      const key = `bt.error.${code}`;
+      const text = t(key);
+      this._message = { error: true, text: text === key ? t("bt.error.unknown", { code }) : text };
+      this._render();
+      return;
+    }
+    if (this._scan?.result) {
+      this._scan.result.devices.forEach((d) => { if (d.id === id) d.tracked = true; });
+    }
+    this._render();
+    // Bermuda reloads and creates the distance sensors after a few seconds
+    for (const delay of [5000, 15000, 30000]) setTimeout(() => this._loadDevices(), delay);
+  }
+
   async _saveTrackers(trackers, okText) {
     await this._ws("save_trackers", {
       trackers: trackers.map((tr) => ({ id: tr.id, name: tr.name, device_id: tr.device_id || null, sensors: tr.sensors || [] })),
@@ -763,6 +848,12 @@ class BleRadarPanel extends HTMLElement {
     setTimeout(() => this._load(), 1500);
     this._render();
   }
+}
+
+// Five bars from the received power (-100 dBm far, -50 dBm close)
+function signalBars(rssi) {
+  const bars = Math.max(1, Math.min(5, Math.round((rssi + 100) / 10)));
+  return `<span class="bars">${"▮".repeat(bars)}<span class="muted">${"▮".repeat(5 - bars)}</span></span>`;
 }
 
 function nearestEdge(polygon, [px, py]) {
@@ -855,6 +946,10 @@ const PANEL_STYLE = `
   label.file { border: 1px solid var(--divider-color, #ccc); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
   label.file input { display: none; }
   .muted, .hint { color: var(--secondary-text-color); font-size: 13px; }
+  .small { font-size: 12px; }
+  .bars { letter-spacing: -2px; color: var(--primary-color); white-space: nowrap; }
+  h4 { margin: 16px 0 4px; }
+  #irk { flex: 1; min-width: 220px; font-family: monospace; }
   .message { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; background: rgba(3,169,244,0.12); }
   .message.error { background: rgba(219,68,55,0.15); }
   .tools { margin-top: 0; }

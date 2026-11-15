@@ -52,6 +52,25 @@ devices first. Each tracked device gets a position sensor. When Bermuda creates 
 distance sensor for the device (for example after adding a proxy), it is picked up
 automatically.
 
+A device not yet tracked by Bermuda can be added from **Find Bluetooth devices**,
+without going through Bermuda's options:
+
+- **Search nearby devices** lists what the proxies hear, closest first: bring the
+  device next to a proxy. **Track** adds it to Bermuda; after a few seconds it
+  appears in *Add a device*.
+  - **iBeacon**: a fixed identifier, whatever MAC is used. **Android phones**: turn on
+    the *BLE Transmitter* sensor of the Home Assistant app (Settings → Companion app →
+    Manage sensors) and the phone shows up here, no IRK needed.
+  - **Fixed address**: tags, watches, bands, and earbuds that keep their MAC.
+    Earbuds are usually visible only while they are *not* connected to the phone
+    (case open, or just taken out): while playing audio they use classic Bluetooth,
+    which the proxies cannot hear. Search with the earbuds in use to check yours.
+- **Phones with a private address** (iPhone, Android without the app transmitter)
+  change MAC every few minutes and are only counted. Paste the phone's **IRK**: BLE
+  Radar adds it to Private BLE Device, which Bermuda tracks by itself. The IRK can't
+  be read over the air; it comes from a device the phone is paired with (for
+  example the Keychain of a Mac on the same iCloud account, or an ESP32 enrolment).
+
 ### 2. Floor plan & rooms
 
 1. **New floor**: give it a name (e.g. "Ground floor") and upload the floor plan (PNG,
