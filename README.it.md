@@ -24,10 +24,14 @@ Non richiede librerie esterne (niente numpy/scipy).
 
 ## Installazione
 
-1. HACS → Integrazioni → Repository personalizzati → aggiungi questo repository.
-2. Installa **BLE Radar** e riavvia Home Assistant.
-3. Impostazioni → Dispositivi e servizi → Aggiungi integrazione → *BLE Radar*.
+1. In HACS cerca **BLE Radar**, scaricalo e riavvia Home Assistant.
+2. Impostazioni → Dispositivi e servizi → Aggiungi integrazione → *BLE Radar*.
    Non chiede nulla: compare la pagina **BLE Radar** nella barra laterale.
+
+Non lo trovi ancora in HACS? Aggiungi questo repository in HACS → ⋮ → Repository
+personalizzati (categoria *Integrazione*) e segui gli stessi passi. Senza HACS, copia
+`custom_components/ble_fingerprint` nella cartella `custom_components` della
+configurazione.
 
 ## La pagina BLE Radar
 
@@ -40,12 +44,14 @@ per primi quelli di [Bermuda](https://github.com/agittins/bermuda). Per ognuno n
 sensore di posizione. Quando Bermuda crea un nuovo sensore di distanza (ad esempio
 perché hai aggiunto uno Shelly) l'integrazione lo include da sola.
 
-Un dispositivo non ancora tracciato da Bermuda si aggiunge da **Trova dispositivi
-Bluetooth**, senza passare dalle opzioni di Bermuda:
+**Trova dispositivi Bluetooth** aiuta con i dispositivi non ancora tracciati da
+Bermuda:
 
 - **Cerca dispositivi vicini** elenca ciò che sentono i proxy, dal più vicino:
-  avvicina il dispositivo a un proxy. **Traccia** lo aggiunge a Bermuda; dopo
-  qualche secondo compare in *Aggiungi un dispositivo*.
+  avvicina il dispositivo a un proxy. Per ognuno è indicato l'indirizzo (o l'id
+  iBeacon) da aggiungere in Bermuda: **Apri Bermuda** → *Configura* → *Select
+  Devices*, selezionalo e salva. Dopo qualche secondo compare in *Aggiungi un
+  dispositivo*. BLE Radar non modifica mai da solo le impostazioni di Bermuda.
   - **iBeacon**: un identificativo fisso, qualunque MAC usi. **Telefoni Android**:
     attiva il sensore *BLE Transmitter* dell'app Home Assistant (Impostazioni → App
     companion → Gestisci sensori) e il telefono compare qui, senza IRK.

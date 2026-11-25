@@ -26,7 +26,7 @@ from .const import (
     TRACKER_ID,
     TRACKER_UNIQUE_ID,
 )
-from .bluetooth_devices import TrackError, bermuda_add, nearby, private_ble_add
+from .bluetooth_devices import TrackError, nearby, private_ble_add
 from .fingerprint import proxy_key, recorded_by
 from .geometry import (
     guided_points,
@@ -60,7 +60,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         ws_save_trackers,
         ws_guided_points,
         ws_nearby,
-        ws_track_bluetooth,
+        ws_track_irk,
         ws_fit_floor,
         ws_fix_points,
         ws_clear_points,
@@ -534,22 +534,17 @@ def ws_nearby(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "ble_fingerprint/track_bluetooth",
-        vol.Required("kind"): vol.In(["address", "ibeacon", "irk"]),
-        vol.Required("device"): vol.All(cv.string, vol.Length(min=1, max=120)),
+        vol.Required("type"): "ble_fingerprint/track_irk",
+        vol.Required("irk"): vol.All(cv.string, vol.Length(min=1, max=120)),
     }
 )
 @websocket_api.async_response
-async def ws_track_bluetooth(
+async def ws_track_irk(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
 ) -> None:
-    """Start tracking a device with Bermuda (address, iBeacon or phone IRK)."""
+    """Add a phone by IRK through Private BLE Device (Bermuda follows it)."""
     try:
-        if msg["kind"] == "irk":
-            title = await private_ble_add(hass, msg["device"])
-        else:
-            bermuda_add(hass, msg["device"])
-            title = msg["device"]
+        title = await private_ble_add(hass, msg["irk"])
     except TrackError as err:
         connection.send_error(msg["id"], err.code, err.code)
         return

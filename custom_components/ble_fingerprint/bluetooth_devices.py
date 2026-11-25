@@ -1,4 +1,4 @@
-"""Find nearby Bluetooth devices and start tracking them with Bermuda.
+"""Find nearby Bluetooth devices to track with Bermuda.
 
 Three kinds of devices can be tracked:
 
@@ -6,7 +6,10 @@ Three kinds of devices can be tracked:
   *BLE Transmitter* sensor of the Home Assistant Android app, or a tag.
   Bermuda tracks it as ``<uuid>_<major>_<minor>`` whatever MAC it uses.
 * **Fixed address**: devices that keep the same MAC (many tags, watches,
-  bands, some earbuds while their case is open). Added by address.
+  bands, some earbuds while their case is open).
+
+The user adds iBeacons and addresses in Bermuda's own options (BLE Radar only
+shows what to add); phones by IRK go through Private BLE Device's config flow.
 * **Phones with a private address** (iPhone, most Android phones) change MAC
   every few minutes: they can only be followed with their IRK, through the
   Private BLE Device integration, which Bermuda picks up by itself.
@@ -52,8 +55,6 @@ KIND_IBEACON = "ibeacon"
 KIND_ADDRESS = "address"
 KIND_PRIVATE = "private"
 
-_MAC = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
-_IBEACON_ID = re.compile(r"^[0-9A-F]{32}_\d+_\d+$")
 
 
 @dataclass
@@ -196,23 +197,6 @@ class TrackError(Exception):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
-
-
-def bermuda_add(hass: HomeAssistant, device_id: str) -> None:
-    """Add an address or an iBeacon to the devices tracked by Bermuda."""
-    device_id = device_id.strip().upper()
-    if not (_MAC.match(device_id) or _IBEACON_ID.match(device_id)):
-        raise TrackError("invalid_id")
-    entry = bermuda_entry(hass)
-    if entry is None:
-        raise TrackError("no_bermuda")
-    devices = [str(a).upper() for a in entry.options.get(BERMUDA_DEVICES) or []]
-    if device_id in devices:
-        return
-    # Bermuda reloads itself when its options change
-    hass.config_entries.async_update_entry(
-        entry, options={**entry.options, BERMUDA_DEVICES: [*devices, device_id]}
-    )
 
 
 def normalize_irk(irk: str) -> str | None:

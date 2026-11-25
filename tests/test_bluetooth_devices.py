@@ -6,15 +6,12 @@ import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ble_fingerprint.bluetooth_devices import (
     Advert,
-    TrackError,
-    bermuda_add,
     classify,
     ibeacon_id,
     normalize_irk,
@@ -87,23 +84,6 @@ def _bermuda(hass, devices=None):
     return entry
 
 
-async def test_bermuda_add(hass):
-    with pytest.raises(TrackError) as err:
-        bermuda_add(hass, "C4:30:18:AA:BB:CC")
-    assert err.value.code == "no_bermuda"
-
-    entry = _bermuda(hass, ["D0:00:00:00:00:01"])
-    bermuda_add(hass, "c4:30:18:aa:bb:cc")
-    bermuda_add(hass, BEACON_ID.lower())
-    bermuda_add(hass, "C4:30:18:AA:BB:CC")  # already there
-    assert entry.options["configured_devices"] == [
-        "D0:00:00:00:00:01", "C4:30:18:AA:BB:CC", BEACON_ID,
-    ]
-    with pytest.raises(TrackError) as err:
-        bermuda_add(hass, "kitchen")
-    assert err.value.code == "invalid_id"
-
-
 async def _ws(client, command, **data):
     await client.send_json_auto_id({"type": f"ble_fingerprint/{command}", **data})
     return await client.receive_json()
@@ -137,9 +117,8 @@ async def test_websocket_nearby_and_track(hass, hass_ws_client):
     assert [d["id"] for d in result["devices"]] == [BEACON_ID, "C4:30:18:AA:BB:CC"]
     assert result["devices"][0]["name"] == "iBeacon"
 
-    resp = await _ws(client, "track_bluetooth", kind="address", device="C4:30:18:AA:BB:CC")
-    assert resp["success"]
-    assert bermuda.options["configured_devices"] == ["C4:30:18:AA:BB:CC"]
+    # BLE Radar never changes Bermuda's options: the user adds devices there
+    assert bermuda.options == {"configured_devices": []}
 
     # phones by IRK go through Private BLE Device
     key = "0123456789abcdef0123456789abcdef"
@@ -153,10 +132,10 @@ async def test_websocket_nearby_and_track(hass, hass_ws_client):
 
     with patch.object(hass.config_entries.flow, "async_init", side_effect=flow_init), \
             patch.object(hass.config_entries.flow, "async_abort"):
-        resp = await _ws(client, "track_bluetooth", kind="irk", device=key.upper())
+        resp = await _ws(client, "track_irk", irk=key.upper())
         assert resp["success"] and resp["result"] == {"title": "Pixel"}
-        resp = await _ws(client, "track_bluetooth", kind="irk", device="ff" * 16)
+        resp = await _ws(client, "track_irk", irk="ff" * 16)
         assert resp["error"]["code"] == "irk_not_found"
-        resp = await _ws(client, "track_bluetooth", kind="irk", device="nope")
+        resp = await _ws(client, "track_irk", irk="nope")
         assert resp["error"]["code"] == "irk_not_valid"
     assert calls == [("private_ble_device", {"irk": key}), ("private_ble_device", {"irk": "ff" * 16})]
