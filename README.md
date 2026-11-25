@@ -35,11 +35,14 @@ the live position. No extra Python libraries are needed (no numpy/scipy).
 
 ## Installation
 
-1. HACS → Integrations → ⋮ → Custom repositories → add this repository (category
-   *Integration*).
-2. Install **BLE Radar** and restart Home Assistant.
-3. Settings → Devices & services → Add integration → *BLE Radar*. It asks nothing: the
+1. In HACS, search for **BLE Radar**, download it and restart Home Assistant.
+2. Settings → Devices & services → Add integration → *BLE Radar*. It asks nothing: the
    **BLE Radar** page appears in the sidebar.
+
+Not in your HACS list yet? Add this repository under HACS → ⋮ → Custom repositories
+(category *Integration*), then follow the same steps. Without HACS, copy
+`custom_components/ble_fingerprint` into the `custom_components` folder of the
+configuration.
 
 ## The BLE Radar page
 
@@ -52,12 +55,13 @@ devices first. Each tracked device gets a position sensor. When Bermuda creates 
 distance sensor for the device (for example after adding a proxy), it is picked up
 automatically.
 
-A device not yet tracked by Bermuda can be added from **Find Bluetooth devices**,
-without going through Bermuda's options:
+**Find Bluetooth devices** helps with devices not yet tracked by Bermuda:
 
 - **Search nearby devices** lists what the proxies hear, closest first: bring the
-  device next to a proxy. **Track** adds it to Bermuda; after a few seconds it
-  appears in *Add a device*.
+  device next to a proxy. Each one shows the address (or iBeacon id) to add in
+  Bermuda: **Open Bermuda** → *Configure* → *Select Devices*, select it and save.
+  After a few seconds it appears in *Add a device*. BLE Radar never changes
+  Bermuda's settings itself.
   - **iBeacon**: a fixed identifier, whatever MAC is used. **Android phones**: turn on
     the *BLE Transmitter* sensor of the Home Assistant app (Settings → Companion app →
     Manage sensors) and the phone shows up here, no IRK needed.

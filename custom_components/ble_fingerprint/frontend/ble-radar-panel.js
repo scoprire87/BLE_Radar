@@ -1011,13 +1011,15 @@ class BleRadarPanel extends HTMLElement {
       const r = scan.result;
       list = `
         ${!r.bermuda ? `<div class="message error">${t("bt.no_bermuda")}</div>` : ""}
-        ${r.devices.length ? `<table><tr><th>${t("col.name")}</th><th>${t("bt.type")}</th><th>${t("bt.signal")}</th><th></th></tr>
+        ${r.devices.length ? `<table><tr><th>${t("col.name")}</th><th>${t("bt.type")}</th><th>${t("bt.signal")}</th><th>${t("bt.to_add")}</th></tr>
           ${r.devices.map((d, i) => `<tr>
             <td>${escapeHtml(d.name)}<div class="muted small">${escapeHtml(d.detail)}</div></td>
             <td>${t(`bt.kind.${d.kind}`)}</td>
             <td title="${d.rssi} dBm">${signalBars(d.rssi)}</td>
             <td>${d.tracked ? `<span class="muted">${t("bt.tracked")}</span>`
-              : `<button data-track="${i}" ${r.bermuda ? "" : "disabled"}>${t("bt.track")}</button>`}</td></tr>`).join("")}</table>`
+              : `<code class="bt-id">${escapeHtml(d.id)}</code> <button data-copy="${i}">${t("bt.copy")}</button>`}</td></tr>`).join("")}</table>
+          ${r.bermuda ? `<p class="hint">${t("bt.how_to_add")}</p>
+          <div class="row"><button data-action="open-bermuda" class="primary">${t("bt.open_bermuda")}</button></div>` : ""}`
           : `<div class="empty">${t("bt.none")}</div>`}
         ${r.private ? `<p class="hint">${t("bt.private", { count: r.private })}</p>` : ""}`;
     }
@@ -1038,13 +1040,16 @@ class BleRadarPanel extends HTMLElement {
 
   _bindBluetoothCard(body) {
     body.querySelector("[data-action=scan]")?.addEventListener("click", () => this._scanBluetooth());
-    body.querySelectorAll("[data-track]").forEach((btn) => btn.addEventListener("click", () => {
-      const device = this._scan.result.devices[Number(btn.dataset.track)];
-      this._trackBluetooth(device.kind, device.id, device.name);
-    }));
+    body.querySelectorAll("[data-copy]").forEach((btn) => btn.addEventListener("click", () =>
+      this._copyId(this._scan.result.devices[Number(btn.dataset.copy)].id, btn)));
+    // Bermuda's own options choose the tracked devices: BLE Radar only shows what to add
+    body.querySelector("[data-action=open-bermuda]")?.addEventListener("click", () => {
+      history.pushState(null, "", "/config/integrations/integration/bermuda");
+      window.dispatchEvent(new CustomEvent("location-changed"));
+    });
     body.querySelector("[data-action=add-irk]")?.addEventListener("click", () => {
       const irk = body.querySelector("#irk").value.trim();
-      if (irk) this._trackBluetooth("irk", irk, null);
+      if (irk) this._addIrk(irk);
     });
   }
 
@@ -1059,11 +1064,27 @@ class BleRadarPanel extends HTMLElement {
     this._render();
   }
 
-  async _trackBluetooth(kind, id, name) {
+  async _copyId(id, button) {
+    try {
+      await navigator.clipboard.writeText(id);
+    } catch (_err) {
+      // no clipboard (plain http): select the text so it can be copied by hand
+      const code = button.previousElementSibling;
+      const range = document.createRange();
+      range.selectNodeContents(code);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+    button.textContent = this._t("bt.copied");
+  }
+
+  async _addIrk(irk) {
     const t = this._t;
     try {
-      const result = await this._hass.connection.sendMessagePromise({ type: "ble_fingerprint/track_bluetooth", kind, device: id });
-      this._message = { text: t("bt.added", { name: name || result.title }) };
+      const result = await this._hass.connection.sendMessagePromise({ type: "ble_fingerprint/track_irk", irk });
+      this._message = { text: t("bt.added", { name: result.title }) };
     } catch (err) {
       const code = err.code || "unknown";
       const key = `bt.error.${code}`;
@@ -1072,11 +1093,8 @@ class BleRadarPanel extends HTMLElement {
       this._render();
       return;
     }
-    if (this._scan?.result) {
-      this._scan.result.devices.forEach((d) => { if (d.id === id) d.tracked = true; });
-    }
     this._render();
-    // Bermuda reloads and creates the distance sensors after a few seconds
+    // Bermuda and creates the distance sensors after a few seconds
     for (const delay of [5000, 15000, 30000]) setTimeout(() => this._loadDevices(), delay);
   }
 
@@ -1187,6 +1205,7 @@ const PANEL_STYLE = `
   label.file input { display: none; }
   .muted, .hint { color: var(--secondary-text-color); font-size: 13px; }
   .small { font-size: 12px; }
+  code.bt-id { font-size: 12px; word-break: break-all; user-select: all; }
   tr.clickable { cursor: pointer; }
   tr.selected td { background: var(--secondary-background-color, #eee); }
   .warn { color: var(--warning-color, #f57c00); }
