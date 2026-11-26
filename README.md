@@ -36,16 +36,18 @@ the live position. No extra Python libraries are needed (no numpy/scipy).
 
 ## Installation
 
-1. In the **Marketplace** of Home Assistant (HACS on older versions), search for
-   **BLE Radar** (or use the button below), download it and restart Home Assistant.
+1. Go to **Settings → Marketplace**, search for **BLE Radar** (or use the button
+   below) and select **Install**. Restart Home Assistant if the Marketplace asks to.
 
-   [![Open in Home Assistant](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=scoprire87&repository=BLE_Radar&category=integration)
+   [![Open in the Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=scoprire87&repository=BLE_Radar)
 
 2. Settings → Devices & services → Add integration → *BLE Radar*. It asks nothing: the
    **BLE Radar** page appears in the sidebar.
 
-Not listed? Add this repository as a custom repository (⋮ → Custom repositories,
-category *Integration*), then follow the same steps. Otherwise, copy
+Not listed? In **Settings → Marketplace** select **Add from link**, enter
+`scoprire87/BLE_Radar` and install it (adding links requires connecting GitHub). On
+Home Assistant versions before the Marketplace, use HACS → ⋮ → Custom repositories
+(category *Integration*). Otherwise, copy
 `custom_components/ble_fingerprint` into the `custom_components` folder of the
 configuration.
 
