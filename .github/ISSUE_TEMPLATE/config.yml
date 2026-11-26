@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Bermuda (distance sensors, device selection)
+    url: https://github.com/agittins/bermuda/issues
+    about: Problems with the distance sensors themselves belong to Bermuda.
+  - name: Home Assistant community
+    url: https://community.home-assistant.io/
+    about: Questions and help with your setup.
