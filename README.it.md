@@ -4,7 +4,7 @@
 
 🇬🇧 [English](README.md) · 🇮🇹 Italiano
 
-[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://hacs.xyz)
+[![Marketplace](https://img.shields.io/badge/Home%20Assistant-Marketplace-41BDF5.svg)](#installazione)
 [![Validate](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml)
 [![Tests](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml)
 
@@ -25,16 +25,18 @@ Non richiede librerie esterne (niente numpy/scipy).
 
 ## Installazione
 
-1. In HACS cerca **BLE Radar** (oppure usa il pulsante qui sotto), scaricalo e
-   riavvia Home Assistant.
+1. Nel **Marketplace** di Home Assistant (HACS nelle versioni precedenti) cerca
+   **BLE Radar** (oppure usa il pulsante qui sotto), scaricalo e riavvia Home
+   Assistant.
 
-   [![Apri in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=scoprire87&repository=BLE_Radar&category=integration)
+   [![Apri in Home Assistant](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=scoprire87&repository=BLE_Radar&category=integration)
 
 2. Impostazioni → Dispositivi e servizi → Aggiungi integrazione → *BLE Radar*.
    Non chiede nulla: compare la pagina **BLE Radar** nella barra laterale.
 
-Non lo trovi ancora in HACS? Aggiungi questo repository in HACS → ⋮ → Repository
-personalizzati (categoria *Integrazione*) e segui gli stessi passi. Senza HACS, copia
+Non lo trovi? Aggiungi questo repository come repository personalizzato (⋮ →
+Repository personalizzati, categoria *Integrazione*) e segui gli stessi passi.
+Altrimenti copia
 `custom_components/ble_fingerprint` nella cartella `custom_components` della
 configurazione.
 
