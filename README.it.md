@@ -4,7 +4,7 @@
 
 🇬🇧 [English](README.md) · 🇮🇹 Italiano
 
-[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://hacs.xyz)
+[![Marketplace](https://img.shields.io/badge/Home%20Assistant-Marketplace-41BDF5.svg)](#installazione)
 [![Validate](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml)
 [![Tests](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml)
 
@@ -25,16 +25,19 @@ Non richiede librerie esterne (niente numpy/scipy).
 
 ## Installazione
 
-1. In HACS cerca **BLE Radar** (oppure usa il pulsante qui sotto), scaricalo e
-   riavvia Home Assistant.
+1. Vai in **Impostazioni → Marketplace**, cerca **BLE Radar** (oppure usa il
+   pulsante qui sotto) e seleziona **Installa**. Riavvia Home Assistant se il
+   Marketplace lo chiede.
 
-   [![Apri in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=scoprire87&repository=BLE_Radar&category=integration)
+   [![Apri nel Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=scoprire87&repository=BLE_Radar)
 
 2. Impostazioni → Dispositivi e servizi → Aggiungi integrazione → *BLE Radar*.
    Non chiede nulla: compare la pagina **BLE Radar** nella barra laterale.
 
-Non lo trovi ancora in HACS? Aggiungi questo repository in HACS → ⋮ → Repository
-personalizzati (categoria *Integrazione*) e segui gli stessi passi. Senza HACS, copia
+Non lo trovi? In **Impostazioni → Marketplace** seleziona **Aggiungi da link**,
+inserisci `scoprire87/BLE_Radar` e installalo (per aggiungere link serve collegare
+GitHub). Nelle versioni di Home Assistant precedenti al Marketplace usa HACS → ⋮ →
+Repository personalizzati (categoria *Integrazione*). Altrimenti copia
 `custom_components/ble_fingerprint` nella cartella `custom_components` della
 configurazione.
 
