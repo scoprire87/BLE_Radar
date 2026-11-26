@@ -4,6 +4,7 @@
 
 🇬🇧 English · 🇮🇹 [Italiano](README.it.md)
 
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://hacs.xyz)
 [![Validate](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/validate.yml)
 [![Tests](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml/badge.svg)](https://github.com/scoprire87/BLE_Radar/actions/workflows/tests.yml)
 
@@ -35,7 +36,11 @@ the live position. No extra Python libraries are needed (no numpy/scipy).
 
 ## Installation
 
-1. In HACS, search for **BLE Radar**, download it and restart Home Assistant.
+1. In HACS, search for **BLE Radar** (or use the button below), download it and
+   restart Home Assistant.
+
+   [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=scoprire87&repository=BLE_Radar&category=integration)
+
 2. Settings → Devices & services → Add integration → *BLE Radar*. It asks nothing: the
    **BLE Radar** page appears in the sidebar.
 

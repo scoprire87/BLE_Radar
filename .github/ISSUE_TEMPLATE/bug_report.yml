@@ -1,0 +1,73 @@
+name: Bug report
+description: Something does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in what you can: it makes the problem much faster to find.
+        Remove names, addresses or anything personal from logs and screenshots.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happens
+      description: What did you expect, and what happens instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the BLE Radar page, Calibration tab
+        2. Choose the device and the room
+        3. ...
+  - type: input
+    id: ble_radar
+    attributes:
+      label: BLE Radar version
+      description: Settings → Devices & services → BLE Radar, or HACS.
+      placeholder: "2.5.1"
+    validations:
+      required: true
+  - type: input
+    id: home_assistant
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.11.2"
+    validations:
+      required: true
+  - type: input
+    id: bermuda
+    attributes:
+      label: Bermuda version (if used)
+      placeholder: "0.8.x"
+  - type: input
+    id: proxies
+    attributes:
+      label: Bluetooth proxies
+      description: Type and number, and the tracked devices.
+      placeholder: "4 ESPHome ESP32, 2 Shelly Plus; Android phone with BLE Transmitter"
+  - type: textarea
+    id: attributes
+    attributes:
+      label: Position sensor attributes
+      description: Developer tools → States → the BLE Radar position sensor → attributes (status, proxies, method, confidence, own_points, distance_factor…).
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Enable debug logging, reproduce the problem, then paste the lines of `custom_components.ble_fingerprint`:
+        ```yaml
+        logger:
+          logs:
+            custom_components.ble_fingerprint: debug
+        ```
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Of the BLE Radar page (Map, Floor plan & rooms, Calibration or Devices tab).
